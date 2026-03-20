@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 
 function App() {
   const [input, setInput] = useState('');
@@ -54,7 +55,6 @@ function App() {
   // Mount Workspace
   const handleMountWorkspace = async () => {
     try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
       const selected = await open({
         directory: true,
         multiple: false,
