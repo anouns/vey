@@ -60,6 +60,7 @@ const state = {
   modelMenuVisible: false,
   modelMenuIndex: 0,
   captureGroqKey: false,
+  captureGeminiKey: false,
   startedAt: Date.now(),
   messages: [],
   loading: false,
@@ -79,6 +80,9 @@ const state = {
     embeddingModel: process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text',
     baseUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
     groqApiKey: process.env.GROQ_API_KEY || '',
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    pythonBaseUrl: process.env.PYTHON_AI_URL || 'http://127.0.0.1:8000',
   },
   ollamaModels: [],
   chatHistory: [],
@@ -366,16 +370,18 @@ function renderMenu(items, selectedIndex, width) {
 }
 
 function renderInputBox(width) {
-  const prompt = state.captureGroqKey
+  const prompt = (state.captureGroqKey || state.captureGeminiKey)
     ? 'key'
     : state.shellMode
       ? color(colors.cyan, '!')
     : color(colors.accent, '>');
   const placeholder = state.captureGroqKey
     ? 'Введите Groq API key'
-    : state.shellMode
-      ? 'Type your shell command'
-      : 'Type your message or @path/to/file';
+    : state.captureGeminiKey
+      ? 'Введите Gemini API key'
+      : state.shellMode
+        ? 'Type your shell command'
+        : 'Type your message or @path/to/file';
   const text = state.input || dim(placeholder);
   const cursor = state.activePane === 'main' && state.cursorVisible ? blockCursor : ' ';
   const line = `${prompt} ${text}${state.input ? cursor : state.activePane === 'main' ? cursor : ''}`;
@@ -389,7 +395,9 @@ function renderFooter(width) {
   const rightTop = color(colors.white, '/model');
   const rightBottom = state.config.provider === 'groq'
     ? color(colors.pink, state.config.model)
-    : color(colors.cyan, state.config.model);
+    : state.config.provider === 'gemini'
+      ? color(colors.accent, state.config.geminiModel)
+      : color(colors.cyan, state.config.model);
   const rightWidth = Math.max(18, Math.floor(width * 0.24));
   const leftWidth = width - rightWidth;
   return [
@@ -417,9 +425,19 @@ function modelMenuItems() {
     type: 'ollama',
   }));
   items.push({
-    label: state.config.groqApiKey ? 'Обновить Groq key' : 'Добавить Groq key',
+    label: 'Python Local AI',
+    value: 'python-local',
+    type: 'python-local',
+  });
+  items.push({
+    label: state.config.groqApiKey ? 'Use Groq' : 'Add Groq key',
     value: 'groq-key',
     type: 'groq-key',
+  });
+  items.push({
+    label: state.config.geminiApiKey ? 'Use Gemini' : 'Add Gemini key',
+    value: 'gemini-key',
+    type: 'gemini-key',
   });
   return items;
 }
@@ -493,6 +511,33 @@ async function ollamaFetch(url, payload) {
 }
 
 async function createEmbedding(text) {
+  if (state.config.provider === 'python-local') {
+    const response = await fetch(`${state.config.pythonBaseUrl}/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      throw new Error(`Python AI embed error: ${response.status}`);
+    }
+    const json = await response.json();
+    return json.embedding || [];
+  }
+  if (state.config.provider === 'gemini') {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${state.config.geminiApiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: { parts: [{ text }] },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Gemini embed error: ${response.status} ${response.statusText}`);
+    }
+    const json = await response.json();
+    return json.embedding?.values || [];
+  }
   const json = await ollamaFetch('/api/embed', {
     model: state.config.embeddingModel,
     input: text,
@@ -501,6 +546,44 @@ async function createEmbedding(text) {
 }
 
 async function generateAnswer(messages) {
+  if (state.config.provider === 'python-local') {
+    const response = await fetch(`${state.config.pythonBaseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+    if (!response.ok) {
+      throw new Error(`Python AI chat error: ${response.status}`);
+    }
+    const json = await response.json();
+    return json.answer || '';
+  }
+  if (state.config.provider === 'gemini') {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${state.config.geminiModel}:generateContent?key=${state.config.geminiApiKey}`;
+    const system = messages.find(m => m.role === 'system');
+    const contents = messages
+      .filter(m => m.role !== 'system')
+      .map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+    const payload = { contents };
+    if (system) {
+      payload.system_instruction = { parts: [{ text: system.content }] };
+    }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Gemini error: ${response.status} ${err}`);
+    }
+    const json = await response.json();
+    return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+  }
+
   if (state.config.provider === 'groq') {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -1308,6 +1391,17 @@ async function submitMainInput() {
     return;
   }
 
+  if (state.captureGeminiKey) {
+    state.config.geminiApiKey = value;
+    state.config.provider = 'gemini';
+    state.config.model = state.config.geminiModel;
+    state.captureGeminiKey = false;
+    state.input = '';
+    await persistAll();
+    pushMessage('info', 'Gemini key сохранен.');
+    return;
+  }
+
   if (state.modelMenuVisible) {
     await activateMenuSelection();
     return;
@@ -1356,8 +1450,41 @@ async function activateMenuSelection() {
     if (!selected) {
       return;
     }
+    if (selected.type === 'python-local') {
+      state.config.provider = 'python-local';
+      state.config.model = 'python-local-model';
+      state.modelMenuVisible = false;
+      state.input = '';
+      await persistAll();
+      pushMessage('info', 'Переключено на локальный Python AI');
+      return;
+    }
     if (selected.type === 'groq-key') {
+      if (state.config.groqApiKey) {
+        state.config.provider = 'groq';
+        state.config.model = 'llama-3.3-70b-versatile'; 
+        state.modelMenuVisible = false;
+        state.input = '';
+        await persistAll();
+        pushMessage('info', 'Переключено на Groq');
+        return;
+      }
       state.captureGroqKey = true;
+      state.modelMenuVisible = false;
+      state.input = '';
+      return;
+    }
+    if (selected.type === 'gemini-key') {
+      if (state.config.geminiApiKey) {
+        state.config.provider = 'gemini';
+        state.config.model = state.config.geminiModel;
+        state.modelMenuVisible = false;
+        state.input = '';
+        await persistAll();
+        pushMessage('info', 'Переключено на Gemini');
+        return;
+      }
+      state.captureGeminiKey = true;
       state.modelMenuVisible = false;
       state.input = '';
       return;
@@ -1607,11 +1734,19 @@ process.on('uncaughtException', (error) => {
 });
 
 await loadState();
-await refreshOllamaModels();
+try {
+  await refreshOllamaModels();
+} catch {
+  // Quiet startup
+}
 normalizeActiveModel();
 
 if (process.stdin.isTTY) {
-  await autoIndexCurrentDir();
+  try {
+    await autoIndexCurrentDir();
+  } catch {
+    // Quiet startup
+  }
   await runInteractiveMode();
 } else {
   await runBatchMode();
