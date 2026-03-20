@@ -1,0 +1,10 @@
+node_modules/
+.vey/
+dist/
+tmp_test/
+hello.txt
+gemini-cli-main.zip
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

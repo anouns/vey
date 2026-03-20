@@ -1,0 +1,28 @@
+{
+  "name": "vey-tui",
+  "version": "0.1.0",
+  "description": "vey.TUI book search and RAG terminal interface",
+  "type": "module",
+  "bin": {
+    "vey": "./src/index.js"
+  },
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js",
+    "check": "node --check src/index.js",
+    "link:global": "npm link",
+    "build:installer": "powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "tesseract.js": "^7.0.0",
+    "word-extractor": "^1.0.4"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
