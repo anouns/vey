@@ -16,11 +16,12 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
+
+# Global workspace state
+CURRENT_WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Load models
 print("Loading models... (this may take a minute)")
@@ -46,9 +47,9 @@ class FileWriteRequest(BaseModel):
 async def write_file(request: FileWriteRequest):
     try:
         # Prevent path traversal
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        global CURRENT_WORKSPACE
         safe_name = os.path.basename(request.filename)
-        target_path = os.path.join(base_path, safe_name)
+        target_path = os.path.join(CURRENT_WORKSPACE, safe_name)
         
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(request.content)
@@ -69,7 +70,8 @@ async def execute_command(request: TerminalRequest):
 
 def get_project_context(root_path=None):
     context_parts = []
-    root_dir = root_path or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    global CURRENT_WORKSPACE
+    root_dir = root_path or CURRENT_WORKSPACE
     allowed_exts = {'.rs', '.py', '.js', '.jsx', '.html', '.css', '.toml', '.json', '.md', '.txt'}
     ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '__pycache__'}
     total_chars = 0
@@ -143,9 +145,13 @@ async def list_ollama_models():
 
 @app.get("/workspace/files")
 async def list_files(path: str = None):
-    files = []
-    root_dir = path or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
+        global CURRENT_WORKSPACE
+        if path:
+            CURRENT_WORKSPACE = path
+        
+        root_dir = CURRENT_WORKSPACE
+        files = []
         for root, dirs, filenames in os.walk(root_dir):
             if ".git" in dirs: dirs.remove(".git")
             if "node_modules" in dirs: dirs.remove("node_modules")

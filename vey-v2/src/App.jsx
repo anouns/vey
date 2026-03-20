@@ -51,6 +51,33 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Mount Workspace
+  const handleMountWorkspace = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Project Folder"
+      });
+
+      if (selected) {
+        setWorkspacePath(selected);
+        // Update backend CURRENT_WORKSPACE and get files
+        const response = await fetch(`http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(selected)}`);
+        const data = await response.json();
+        setWorkspaceFiles(data.files || []);
+        console.log("Mounted:", selected);
+        setMessages(prev => [...prev, { role: 'VEY', content: `WORKSPACE_MOUNTED: ${selected}` }]);
+      }
+    } catch (err) {
+      console.error("Tauri Dialog Error:", err);
+      if (err.toString().includes("window.__TAURI__") || err.toString().includes("not found")) {
+         alert("TAURI_API_NOT_FOUND: Ensure you are running inside the Vey Desktop app.");
+      }
+    }
+  };
+
   // Fetch Workspace
   useEffect(() => {
     const fetchWorkspace = async () => {
@@ -153,29 +180,7 @@ function App() {
     }
   };
 
-  const handleSelectFolder = async () => {
-    try {
-      // Use Tauri's dialog API if available
-      if (window.__TAURI__) {
-        const selected = await window.__TAURI__.dialog.open({
-          directory: true,
-          multiple: false,
-          title: "Select Project Workspace"
-        });
-        if (selected) {
-           // Update workspace with new path
-           const response = await fetch(`http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(selected)}`);
-           const data = await response.json();
-           setWorkspaceFiles(data.files || []);
-           console.log("Mounted:", selected);
-        }
-      } else {
-        alert("TAURI_API_NOT_FOUND: Ensure you are running inside the Vey Desktop app.");
-      }
-    } catch (err) {
-      console.error("Folder selection failed:", err);
-    }
-  };
+  // End of handleSend
 
   const handleApproveFileChange = async () => {
     if (!pendingFileChange) return;
@@ -521,7 +526,7 @@ function App() {
               </div>
 
               <div 
-                onClick={handleSelectFolder}
+                onClick={handleMountWorkspace}
                 className="mt-6 border border-white/5 border-dashed rounded-sm p-8 flex flex-col items-center justify-center gap-4 bg-white/[0.01] hover:bg-[#4ade80]/5 hover:border-[#4ade80]/20 transition-all cursor-pointer group"
               >
                 <span className="material-symbols-outlined text-white/10 group-hover:text-[#4ade80]/40 text-3xl transition-colors">folder_zip</span>

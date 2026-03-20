@@ -2,6 +2,7 @@
 pub fn run() {
   tauri::Builder::default()
     .setup(|app| {
+      app.handle().plugin(tauri_plugin_dialog::init())?;
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
