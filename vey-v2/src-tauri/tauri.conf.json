@@ -35,8 +35,5 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {
-    "dialog": {},
-    "log": {}
-  }
+  "plugins": {}
 }
