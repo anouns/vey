@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { FileIcon, defaultStyles } from 'react-file-icon';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+
+const appWindow = getCurrentWindow();
 
 const InteractiveTerminal = ({ initialCmd, initialOutput }) => {
     const [history, setHistory] = useState([
@@ -71,8 +82,19 @@ const InteractiveTerminal = ({ initialCmd, initialOutput }) => {
 };
 
 function App() {
+  const loadSettings = () => {
+    const saved = localStorage.getItem('vey_settings');
+    if (saved) return JSON.parse(saved);
+    return {
+      groqKey: '',
+      ollamaModel: 'deepseek-coder',
+      groqModel: '',
+      theme: 'Obsidian'
+    };
+  };
+
   const [input, setInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('PYTHON_LOCAL_AI');
+  const [selectedModel, setSelectedModel] = useState(localStorage.getItem('vey_model') || 'PYTHON_LOCAL_AI');
   const [isModelOpen, setIsModelOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [messages, setMessages] = useState([
@@ -83,24 +105,27 @@ function App() {
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [ollamaModels, setOllamaModels] = useState([]);
   const [groqModels, setGroqModels] = useState([]);
+  const [backendReady, setBackendReady] = useState(false);
+  const [bootMessage, setBootMessage] = useState("INITIALIZING NEURAL LINK");
   const [isCommandMode, setIsCommandMode] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState(new Set(['.'])); // Root expanded by default
   const [pendingFileChange, setPendingFileChange] = useState(null);
-  const [settings, setSettings] = useState({
-    groqKey: '',
-    ollamaModel: 'deepseek-coder',
-    theme: 'Obsidian'
-  });
+  const [settings, setSettings] = useState(loadSettings());
+
+  useEffect(() => {
+    localStorage.setItem('vey_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('vey_model', selectedModel);
+  }, [selectedModel]);
 
   const messagesEndRef = useRef(null);
 
   const models = [
     { id: 'PYTHON_LOCAL_AI', name: 'VEY.AI Core (Semantic Matrix)', icon: 'terminal' },
     { id: 'OLLAMA_RAG', name: `OLLAMA: ${settings.ollamaModel}`, icon: 'precision_manufacturing' },
-    ...(groqModels.length > 0
-        ? groqModels.map(m => ({ id: m, name: `${m} (Production)`, icon: 'bolt' }))
-        : [{ id: 'GROQ_RAG', name: 'GROQ_CLOUD_LPU', icon: 'bolt' }]
-    )
+    { id: settings.groqModel || 'GROQ_RAG', name: settings.groqKey ? `GROQ: ${settings.groqModel || 'Cloud LPU'}` : 'GROQ (Requires API Key)', icon: 'bolt' }
   ];
 
   // Also maintain the chosen groq model logic if selectedModel is a groq model
@@ -156,8 +181,23 @@ function App() {
     }
   };
 
-  // Fetch Workspace
+  // Fetch Workspace and Ping Backend
   useEffect(() => {
+    let checkInterval;
+    const pingBackend = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/metrics');
+        if (res.ok) {
+          setBackendReady(true);
+          clearInterval(checkInterval);
+        }
+      } catch (e) {
+        setBootMessage(prev => prev.length > 35 ? "LOADING SEMANTIC TENSORS" : prev + ".");
+      }
+    };
+    checkInterval = setInterval(pingBackend, 2000);
+    pingBackend();
+
     const fetchWorkspace = async () => {
       try {
         const savedPath = localStorage.getItem('vey_workspace');
@@ -170,6 +210,8 @@ function App() {
       } catch (e) {}
     };
     fetchWorkspace();
+
+    return () => clearInterval(checkInterval);
   }, []);
 
   // Fetch Ollama Models
@@ -196,6 +238,9 @@ function App() {
         if (data && data.data) {
            const gm = data.data.map(m => m.id).filter(id => !id.includes('whisper'));
            setGroqModels(gm);
+           if (!settings.groqModel && gm.length > 0) {
+               setSettings(prev => ({...prev, groqModel: gm[0]}));
+           }
         }
       } catch (e) {}
     };
@@ -259,7 +304,8 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
               messages: [{ role: 'user', content: rawInput }],
-              model: selectedModel 
+              model: selectedModel,
+              api_key: settings.groqKey
           })
         });
         const data = await response.json();
@@ -364,7 +410,17 @@ function App() {
   }, []);
 
   return (
-    <div className={`font-sans text-[#e0e0e0] selection:bg-[#4ade80]/30 selection:text-white h-screen flex flex-col overflow-hidden bg-[#0a0a0a] relative antialiased scroll-smooth ${settings.theme === 'High Contrast' ? 'contrast-125' : ''}`}>
+    <div data-tauri-drag-region className={`font-sans text-[#e0e0e0] selection:bg-[#4ade80]/30 selection:text-white h-screen flex flex-col overflow-hidden bg-[#0a0a0a] relative antialiased scroll-smooth ${settings.theme === 'High Contrast' ? 'contrast-125' : ''} ${settings.theme === 'Light Theme' ? 'invert hue-rotate-180' : ''}`}>
+      {/* Invisible Hover Titlebar */}
+      <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-8 flex justify-between items-center px-4 bg-black/95 z-[9999] opacity-0 hover:opacity-100 transition-opacity duration-300">
+        <div data-tauri-drag-region className="text-white/40 text-[10px] uppercase tracking-widest pointer-events-none select-none flex-1 font-black">VEY.AI CORE</div>
+        <div className="flex gap-5 h-full items-center">
+          <button onClick={() => appWindow.minimize()} className="text-white/40 hover:text-white transition-colors material-symbols-outlined text-[13px] h-full px-2">remove</button>
+          <button onClick={() => appWindow.toggleMaximize()} className="text-white/40 hover:text-white transition-colors material-symbols-outlined text-[13px] h-full px-2">crop_square</button>
+          <button onClick={() => appWindow.close()} className="text-white/40 hover:text-red-500 transition-colors material-symbols-outlined text-[13px] h-full px-2">close</button>
+        </div>
+      </div>
+
       <div className="fixed inset-0 pointer-events-none z-0 opacity-[0.015]" style={{ backgroundImage: 'linear-gradient(#4ade80 1px, transparent 1px), linear-gradient(90deg, #4ade80 1px, transparent 1px)', backgroundSize: '60px 60px' }}></div>
       <div className="scanline"></div>
 
@@ -434,8 +490,11 @@ function App() {
                   <div className="space-y-3">
                     <span className="text-[9px] text-white/20 uppercase font-bold tracking-widest pl-1">Available Models</span>
                     <select 
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
+                      value={settings.groqModel || ''}
+                      onChange={(e) => {
+                          setSettings(prev => ({...prev, groqModel: e.target.value}));
+                          setSelectedModel(e.target.value);
+                      }}
                       className="w-full bg-[#0a0a0a] border border-white/10 rounded-sm px-4 py-3 text-[11px] font-bold text-white/80 focus:border-[#38bdf8]/40 outline-none"
                     >
                       {groqModels.length > 0 ? (
@@ -455,7 +514,7 @@ function App() {
                   <label className="uppercase text-white/40 text-[10px] font-bold tracking-[0.2em]">Visual Environment</label>
                 </div>
                 <div className="flex gap-4">
-                  {['Obsidian', 'High Contrast', 'Amber Terminal'].map(t => (
+                  {['Obsidian', 'High Contrast', 'Light Theme'].map(t => (
                     <button 
                       key={t}
                       onClick={() => setSettings({...settings, theme: t})}
@@ -521,12 +580,32 @@ function App() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden relative z-10">
+      <div className="flex flex-1 overflow-hidden relative z-10" data-tauri-drag-region>
         {/* Main Chat Area */}
-        <main className="flex-1 flex flex-col relative bg-[#0a0a0a] overflow-hidden">
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-12 lg:p-16 space-y-16 scroll-smooth">
+        <main data-tauri-drag-region className="flex-1 flex flex-col relative bg-[#0a0a0a] overflow-hidden">
+          <div data-tauri-drag-region className="flex-1 overflow-y-auto custom-scrollbar p-12 lg:p-16 space-y-16 scroll-smooth">
             <div className="max-w-4xl mx-auto w-full space-y-16 pb-32">
-                {messages.map((msg, i) => (
+                {!backendReady && (
+                <div className="h-full flex flex-col items-center justify-center space-y-6">
+                  <div className="relative flex items-center justify-center h-24 w-24 mb-4">
+                    <div className="absolute inset-0 border-t-2 border-emerald-500/80 w-full h-full rounded-full animate-spin shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
+                    <div className="absolute inset-2 border-r-2 border-emerald-700/60 w-full h-full rounded-full animate-[spin_1.5s_linear_reverse_infinite]"></div>
+                    <div className="absolute inset-4 border-b-2 border-emerald-900/40 w-full h-full rounded-full animate-[spin_3s_linear_infinite]"></div>
+                    <span className="material-icons text-emerald-400 text-3xl opacity-90 animate-pulse">memory</span>
+                  </div>
+                  <div className="text-emerald-400 font-mono text-xl tracking-[0.3em] font-bold animate-pulse shadow-emerald-500/50 drop-shadow-md">
+                    BOOTING VEY.AI CORE
+                  </div>
+                  <div className="text-emerald-600 font-mono text-xs tracking-widest uppercase">
+                    {bootMessage}
+                  </div>
+                  <div className="text-emerald-900/60 font-mono text-[10px] mt-12 max-w-sm text-center px-4">
+                    LOADING QWEN NEURAL WEIGHTS AND SENTENCE TRANSFORMERS. THIS MAY TAKE 10-30 SECONDS...
+                  </div>
+                </div>
+              )}
+              
+              {backendReady && messages.map((msg, i) => (
                 <div key={i} className={`flex gap-8 group ${msg.error ? 'opacity-50' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                     <div className={`w-10 h-10 flex-shrink-0 border flex items-center justify-center rounded-sm ${msg.role === 'VEY' || msg.role === 'SYS' ? 'border-[#4ade80]/30 bg-[#4ade80]/5' : 'border-white/10 bg-white/5'}`}>
                         {msg.role === 'VEY' || msg.role === 'SYS' ? (
@@ -539,8 +618,19 @@ function App() {
                     {(msg.role === 'VEY' || msg.role === 'SYS') && (
                         <div className="text-[#4ade80]/20 font-mono tracking-widest text-[10px] select-none uppercase mb-2">--------------------</div>
                     )}
-                    <div className={`${msg.role === 'VEY' || msg.role === 'SYS' ? 'text-white/90' : 'text-[#4ade80]'} text-[16px] leading-[1.7] break-words font-medium`}>
-                        {msg.content}
+                    <div className={`${msg.role === 'VEY' || msg.role === 'SYS' ? 'text-white/90' : 'text-[#4ade80]'} text-[16px] leading-[1.7] break-words font-medium w-full`}>
+                        {msg.role === 'VEY' || msg.role === 'SYS' ? (
+                            <div className="markdown-body overflow-x-hidden">
+                                <ReactMarkdown 
+                                    remarkPlugins={[remarkGfm, remarkMath]} 
+                                    rehypePlugins={[rehypeKatex]}
+                                >
+                                    {msg.content}
+                                </ReactMarkdown>
+                            </div>
+                        ) : (
+                            msg.content
+                        )}
                     </div>
                     {msg.code && msg.isTerminal ? (
                         <InteractiveTerminal initialCmd={msg.cmd} initialOutput={msg.code} />
@@ -738,33 +828,33 @@ function App() {
                 </div>
               </div>
             </div>
-          )}
-          <form className="w-full" onSubmit={handleSubmit}>
-            <div className={`relative flex items-center group ${isCommandMode ? 'ring-2 ring-[#facc15]/30' : ''}`}>
+          )}          <form className="w-full" onSubmit={handleSubmit}>
+            <div className={`relative flex items-center group ${isCommandMode ? 'ring-2 ring-[#facc15]/30' : ''} ${isShortcutsOpen ? 'ring-2 ring-[#38bdf8]/30' : ''}`}>
                 <span className={`absolute left-4 font-black text-xl transition-all duration-300 select-none ${isShortcutsOpen ? 'text-[#38bdf8]' : (isCommandMode ? 'text-[#facc15]' : 'text-[#4ade80] opacity-40')}`}>
                   {isCommandMode || input.startsWith('!') ? '>' : '/'}
                 </span>
                 <input 
-                  className={`w-full bg-[#111] border rounded-sm focus:ring-1 ${isCommandMode ? 'text-[#facc15] border-[#facc15]/50 ring-[#facc15]/20 bg-[#111]/80' : 'text-[#4ade80]'} font-mono placeholder:text-white/5 pl-12 pr-32 text-lg transition-all py-6 tracking-tight shadow-2xl outline-none ${!isCommandMode && isShortcutsOpen ? 'border-[#38bdf8]/50 ring-[#38bdf8]/20' : (!isCommandMode ? 'border-white/5 focus:border-[#4ade80]/50 ring-[#4ade80]/20' : '')}`} 
-                  placeholder={isCommandMode || input.startsWith('!') ? "SYSTEM COMMAND..." : "EXECUTE ANALYTIC PROTOCOL..."} 
+                  className={`w-full bg-[#111] border rounded-sm focus:ring-1 ${isCommandMode ? 'text-[#facc15] border-[#facc15]/50 ring-[#facc15]/20 bg-[#111]/80' : 'text-[#4ade80]'} font-mono placeholder:text-white/5 pl-12 pr-16 text-lg transition-all py-6 tracking-tight shadow-2xl outline-none ${!isCommandMode && isShortcutsOpen ? 'border-[#38bdf8]/50 ring-[#38bdf8]/20 bg-[#111]/80' : (!isCommandMode ? 'border-white/5 focus:border-[#4ade80]/50 ring-[#4ade80]/20' : '')}`} 
+                  placeholder={isCommandMode || input.startsWith('!') ? "SYSTEM COMMAND..." : (isShortcutsOpen ? "SHORTCUTS MENU ACTIVE... (ESC TO CLOSE)" : "EXECUTE ANALYTIC PROTOCOL...")} 
                   type="text"
                   autoFocus
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                      if (e.target.value === '?' && input === '') {
+                          setIsShortcutsOpen(prev => !prev);
+                      } else {
+                          setInput(e.target.value);
+                      }
+                  }}
                 />
                 <div className="absolute right-4 flex items-center gap-4">
                   {isCommandMode && (
-                      <span className="text-[10px] text-[#facc15] font-black tracking-widest uppercase mr-2 animate-pulse">CMD_MODE</span>
+                    <span className="text-[9px] uppercase font-black tracking-widest text-[#facc15] border border-[#facc15]/30 px-3 py-1 rounded-sm animate-pulse bg-[#facc15]/10">
+                      OS_EXEC
+                    </span>
                   )}
-                  <button 
-                    type="button" 
-                    onClick={() => setIsShortcutsOpen(!isShortcutsOpen)}
-                    className={`text-[10px] font-black tracking-widest uppercase transition-all px-3 py-1.5 border rounded-sm ${isShortcutsOpen ? 'bg-[#38bdf8]/10 border-[#38bdf8] text-[#38bdf8]' : 'text-white/20 hover:text-white/40 border-white/10 hover:border-white/20'}`}
-                  >
-                    Shortcuts?
-                  </button>
-                  <button type="submit" className={`w-10 h-10 ${isCommandMode ? 'bg-[#facc15]/10 border-[#facc15]/20 text-[#facc15] hover:bg-[#facc15]' : 'bg-[#4ade80]/10 border-[#4ade80]/20 text-[#4ade80] hover:bg-[#4ade80]'} rounded-sm flex items-center justify-center hover:text-[#0a0a0a] transition-all shadow-[0_0_15px_rgba(74,222,128,0.2)]`}>
-                      <span className="material-symbols-outlined text-[20px]">send</span>
+                  <button type="submit" className={`w-10 h-10 flex items-center justify-center border hover:bg-white/5 transition-all rounded-sm group ${isCommandMode ? 'border-[#facc15]/30 hover:border-[#facc15]/50' : 'border-[#4ade80]/20 hover:border-[#4ade80]/50'}`}>
+                    <span className={`material-symbols-outlined text-[18px] transition-transform group-hover:translate-x-0.5 ${isCommandMode ? 'text-[#facc15]/70' : 'text-[#4ade80]/70'}`}>send</span>
                   </button>
                 </div>
             </div>

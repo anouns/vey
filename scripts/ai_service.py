@@ -9,6 +9,7 @@ import torch
 import uvicorn
 import psutil
 import requests
+import pypdf
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
@@ -46,7 +47,7 @@ def build_vector_database(root_dir):
     
     print(f"Indexing VEY.AI Massive Databank for: {root_dir}")
     DOC_DB = []
-    allowed_exts = {'.rs', '.py', '.js', '.jsx', '.html', '.css', '.toml', '.json', '.md', '.txt', '.txt'}
+    allowed_exts = {'.rs', '.py', '.js', '.jsx', '.html', '.css', '.toml', '.json', '.md', '.txt', '.pdf', '.docx', '.odt', '.png', '.jpg', '.jpeg'}
     ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '__pycache__'}
     
     for root, dirs, filenames in os.walk(root_dir):
@@ -56,14 +57,44 @@ def build_vector_database(root_dir):
             if ext in allowed_exts:
                 file_path = os.path.join(root, f)
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as file:
-                        content = file.read()
+                    content = ""
+                    if ext == '.pdf':
+                        with open(file_path, 'rb') as file:
+                            reader = pypdf.PdfReader(file)
+                            for page in reader.pages:
+                                t = page.extract_text()
+                                if t: content += t + "\n"
+                    elif ext == '.docx':
+                        import docx
+                        doc = docx.Document(file_path)
+                        content = "\n".join([para.text for para in doc.paragraphs])
+                    elif ext == '.odt':
+                        from odf import text as odf_text, teletype
+                        from odf.opendocument import load
+                        doc = load(file_path)
+                        for para in doc.getElementsByType(odf_text.P):
+                            content += teletype.extractText(para) + "\n"
+                    elif ext in {'.png', '.jpg', '.jpeg'}:
+                        try:
+                            import pytesseract
+                            from PIL import Image
+                            # Note: Requires Tesseract-OCR binary installed on OS
+                            extracted = pytesseract.image_to_string(Image.open(file_path), lang='rus+eng')
+                            if extracted.strip(): 
+                                content = f"[ТЕКСТ ИЗ ИЗОБРАЖЕНИЯ]: {extracted}\n"
+                        except:
+                            pass
+                    else:
+                        with open(file_path, 'r', encoding='utf-8') as file:
+                            content = file.read()
+                    
+                    if not content.strip(): continue
                         
-                        chunk_size = 900
-                        for i in range(0, len(content), chunk_size):
-                            snippet = content[i:i+chunk_size]
-                            chunk_text = f"--- FILE: {os.path.relpath(file_path, root_dir)} (CHUNk {i//chunk_size}) ---\n{snippet}\n"
-                            DOC_DB.append(chunk_text)
+                    chunk_size = 900
+                    for i in range(0, len(content), chunk_size):
+                        snippet = content[i:i+chunk_size]
+                        chunk_text = f"--- ФАЙЛ: {os.path.relpath(file_path, root_dir)} (ЧАСТЬ {i//chunk_size}) ---\n{snippet}\n"
+                        DOC_DB.append(chunk_text)
                 except: continue
                 
     if DOC_DB:
@@ -88,6 +119,7 @@ def retrieve_top_k(query, k=4):
 class ChatRequest(BaseModel):
     messages: list
     model: str = "PYTHON_LOCAL_AI"
+    api_key: str | None = None
 
 class TerminalRequest(BaseModel):
     command: str
@@ -126,21 +158,23 @@ async def chat(request: ChatRequest):
     try:
         last_msg = request.messages[-1]['content']
         
+        build_vector_database(CURRENT_WORKSPACE)
+        context = retrieve_top_k(last_msg, k=4)
+        
+        system_instruction = (
+            "Ты — VEY.AI, продвинутый русскоязычный ИИ-помощник. Твоя главная задача — отвечать на вопросы пользователя и помогать.\n"
+            "ОТВЕЧАЙ МАКСИМАЛЬНО ПОДРОБНО, КРАСИВО (используя Markdown) И ТОЛЬКО НА РУССКОМ ЯЗЫКЕ.\n"
+            "Ниже предоставлена база знаний (LOCAL DATABANKS), содержащая текст из файлов и книг пользователя.\n"
+            "ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА для анализа документов:\n"
+            "1. Пиши связный текст своими словами. КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ цитировать технические заголовки вроде 'ФАЙЛ', '(ЧАСТЬ)' или '[FILE_REQUEST]'.\n"
+            "2. Если пользователь просто просит рассказать о книге или тексте, не пиши технические теги — просто расскажи суть в виде статьи.\n"
+            "3. Ты можешь изменять файлы, если пользователь попросит. ТОЛЬКО для создания или изменения файлов программирования используй формат:\n"
+            "[FILE_REQUEST: имя_файла] НОВЫЙ КОД ЗАМЕНЫ [/FILE_REQUEST]\n"
+            "4. Во всех остальных случаях (обсуждения, аналитика книг) — просто отвечай обычным текстом БЕЗ тегов [FILE_REQUEST].\n"
+            f"\n--- LOCAL DATABANKS (Файлы пользователя) ---:\n{context}\n"
+        )
+
         if request.model == "PYTHON_LOCAL_AI":
-            build_vector_database(CURRENT_WORKSPACE)
-            context = retrieve_top_k(last_msg, k=4)
-            
-            system_instruction = (
-                "You are VEY.AI. An extremely advanced and highly optimized software engineering AI. "
-                "CRITICAL: ALWAYS respond EXACTLY and EXCLUSIVELY in the Russian language (ОТВЕЧАЙ НА РУССКОМ, код оставляй как есть). "
-                "Analyze the provided semantic vector database context to answer accurately. "
-                "To request a file change, use EXACT format:\n"
-                "[FILE_REQUEST: filename] NEW CONTENT HERE [/FILE_REQUEST]\n"
-                "To open a folder:\n"
-                "[OPEN_FOLDER: /path/to/folder]\n"
-                f"\n--- VEY.AI LOCAL DATABANKS ---:\n{context}\n"
-            )
-            
             messages_for_llm = [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": last_msg}
@@ -157,8 +191,37 @@ async def chat(request: ChatRequest):
             
             return {"answer": answer}
         
-        # Fallbacks for Ollama/Groq (placeholders as before)
-        return {"answer": f"ROUTED_TO_{request.model}: Protocol active."}
+        elif request.model.startswith("OLLAMA"):
+            real_model = request.model.split(": ")[1] if ": " in request.model else "deepseek-coder"
+            try:
+                res = requests.post("http://localhost:11434/api/chat", json={
+                    "model": real_model,
+                    "messages": [
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": last_msg}
+                    ],
+                    "stream": False
+                }, timeout=60).json()
+                return {"answer": res.get("message", {}).get("content", "Error")}
+            except:
+                return {"answer": "OLLAMA CONNECTION FAILED."}
+        else:
+            # Assume Groq
+            if not request.api_key: return {"answer": "ERROR: GROQ API Key is missing."}
+            try:
+                res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers={
+                    "Authorization": f"Bearer {request.api_key}"
+                }, json={
+                    "model": request.model,
+                    "messages": [
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": last_msg}
+                    ]
+                }, timeout=30).json()
+                if "error" in res: return {"answer": f"GROQ Error: {res['error']['message']}"}
+                return {"answer": res["choices"][0]["message"]["content"]}
+            except Exception as e:
+                return {"answer": f"GROQ SDK ERROR: {str(e)}"}
     except Exception as e:
         return {"answer": f"SYSTEM_ERROR: {str(e)}"}
 

@@ -25,19 +25,13 @@ pub fn run() {
                   #[cfg(windows)]
                   {
                       use std::os::windows::process::CommandExt;
-                      let mut success = false;
-                      if std::process::Command::new("pythonw")
+                      if std::process::Command::new("python")
                           .arg(path.to_str().unwrap())
-                          .creation_flags(0x08000000)
-                          .spawn().is_ok() {
-                          success = true;
-                      } else if std::process::Command::new("python")
-                          .arg(path.to_str().unwrap())
-                          .creation_flags(0x08000000)
-                          .spawn().is_ok() {
-                          success = true;
+                          .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                          .spawn().is_ok()
+                      {
+                          // Successfully silently launched python worker
                       }
-                      if success { break; }
                   }
                   
                   #[cfg(not(windows))]
