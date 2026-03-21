@@ -1,6 +1,75 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 
+const InteractiveTerminal = ({ initialCmd, initialOutput }) => {
+    const [history, setHistory] = useState([
+        { cmd: initialCmd, output: initialOutput }
+    ]);
+    const [input, setInput] = useState('');
+    const [isWorking, setIsWorking] = useState(false);
+    const bottomRef = useRef(null);
+
+    const runCmd = async (e) => {
+        e.preventDefault();
+        if (!input.trim() || isWorking) return;
+        const cmd = input.trim();
+        setInput('');
+        setIsWorking(true);
+        // Add optimistic
+        setHistory(prev => [...prev, { cmd, output: '...' }]);
+        try {
+            const response = await fetch('http://127.0.0.1:8000/terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: cmd })
+            });
+            const data = await response.json();
+            setHistory(prev => {
+                const updated = [...prev];
+                updated[updated.length - 1].output = data.output;
+                return updated;
+            });
+        } catch (err) {
+            setHistory(prev => {
+                const updated = [...prev];
+                updated[updated.length - 1].output = 'FATAL_ERROR: Connection lost.';
+                return updated;
+            });
+        }
+        setIsWorking(false);
+        bottomRef.current?.scrollIntoView();
+    };
+
+    return (
+        <div className="bg-[#111] border border-[#facc15]/20 focus-within:border-[#facc15] p-8 font-mono text-[13px] group relative rounded-sm shadow-inner mt-4 transition-all flex flex-col">
+            <div className="absolute right-6 top-6 text-[10px] text-[#facc15] flex gap-3 uppercase tracking-widest font-sans font-black">
+                TERMINAL_SESSION
+                <span className="material-symbols-outlined text-[14px]">terminal</span>
+            </div>
+            <div className="flex-1 overflow-x-auto text-white/70 whitespace-pre custom-scrollbar pb-2 leading-relaxed max-h-[300px] overflow-y-auto">
+                {history.map((h, i) => (
+                    <div key={i} className="mb-4">
+                        <div className="text-[#facc15] font-black">{'>'} {h.cmd}</div>
+                        <div className="opacity-80 mt-1 selection:bg-[#facc15]/30">{h.output}</div>
+                    </div>
+                ))}
+                {isWorking && <div className="text-[#facc15] animate-pulse">...</div>}
+                <div ref={bottomRef} />
+            </div>
+            <form onSubmit={runCmd} className="mt-4 flex items-center border-t border-white/10 pt-4 opacity-50 focus-within:opacity-100 transition-opacity">
+                <span className="text-[#facc15] font-black mr-3">{'>'}</span>
+                <input 
+                    type="text" 
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    className="flex-1 bg-transparent outline-none text-[#facc15] placeholder:text-[#facc15]/30 font-mono text-[12px]"
+                    placeholder="Enter command to continue session..."
+                />
+            </form>
+        </div>
+    );
+};
+
 function App() {
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState('PYTHON_LOCAL_AI');
@@ -10,8 +79,11 @@ function App() {
     { role: 'VEY', content: 'SYSTEM INITIALIZED. STANDBY FOR COMMAND...' }
   ]);
   const [metrics, setMetrics] = useState({ cpu: 0, memory: 0, indexing: 0 });
+  const [workspacePath, setWorkspacePath] = useState(localStorage.getItem('vey_workspace') || '');
   const [workspaceFiles, setWorkspaceFiles] = useState([]);
   const [ollamaModels, setOllamaModels] = useState([]);
+  const [groqModels, setGroqModels] = useState([]);
+  const [isCommandMode, setIsCommandMode] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState(new Set(['.'])); // Root expanded by default
   const [pendingFileChange, setPendingFileChange] = useState(null);
   const [settings, setSettings] = useState({
@@ -23,11 +95,15 @@ function App() {
   const messagesEndRef = useRef(null);
 
   const models = [
-    { id: 'PYTHON_LOCAL_AI', name: 'VEY_RAG_ENGINE (tuned)', icon: 'terminal' },
+    { id: 'PYTHON_LOCAL_AI', name: 'VEY.AI Core (Semantic Matrix)', icon: 'terminal' },
     { id: 'OLLAMA_RAG', name: `OLLAMA: ${settings.ollamaModel}`, icon: 'precision_manufacturing' },
-    { id: 'GROQ_RAG', name: 'GROQ_CLOUD_LPU', icon: 'bolt' }
+    ...(groqModels.length > 0
+        ? groqModels.map(m => ({ id: m, name: `${m} (Production)`, icon: 'bolt' }))
+        : [{ id: 'GROQ_RAG', name: 'GROQ_CLOUD_LPU', icon: 'bolt' }]
+    )
   ];
 
+  // Also maintain the chosen groq model logic if selectedModel is a groq model
   const currentModel = models.find(m => m.id === selectedModel) || models[0];
 
   const scrollToBottom = () => {
@@ -63,6 +139,8 @@ function App() {
 
       if (selected) {
         setWorkspacePath(selected);
+        setWorkspaceFiles([]); // Clear immediately while loading
+        localStorage.setItem('vey_workspace', selected);
         // Update backend CURRENT_WORKSPACE and get files
         const response = await fetch(`http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(selected)}`);
         const data = await response.json();
@@ -82,7 +160,11 @@ function App() {
   useEffect(() => {
     const fetchWorkspace = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/workspace/files');
+        const savedPath = localStorage.getItem('vey_workspace');
+        const url = savedPath 
+          ? `http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(savedPath)}`
+          : 'http://127.0.0.1:8000/workspace/files';
+        const res = await fetch(url);
         const data = await res.json();
         setWorkspaceFiles(data.files || []);
       } catch (e) {}
@@ -102,15 +184,34 @@ function App() {
     fetchOllama();
   }, [isSettingsOpen]);
 
+  // Fetch Groq Models
+  useEffect(() => {
+    const fetchGroq = async () => {
+      if (!settings.groqKey) return;
+      try {
+        const res = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${settings.groqKey}` }
+        });
+        const data = await res.json();
+        if (data && data.data) {
+           const gm = data.data.map(m => m.id).filter(id => !id.includes('whisper'));
+           setGroqModels(gm);
+        }
+      } catch (e) {}
+    };
+    fetchGroq();
+  }, [settings.groqKey, isSettingsOpen]);
+
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [isTerminalExecution, setIsTerminalExecution] = useState(false);
   const [thinkingFrame, setThinkingFrame] = useState(0);
 
   const frames = ['/', '-', '\\', '|'];
 
   useEffect(() => {
     let interval;
-    if (isThinking) {
+    if (isThinking || isTerminalExecution) {
       interval = setInterval(() => {
         setThinkingFrame(f => (f + 1) % frames.length);
       }, 150);
@@ -123,30 +224,33 @@ function App() {
     if (!input.trim() || isThinking) return;
 
     const rawInput = input.trim();
-    const isTerminalCmd = rawInput.startsWith('!');
+    const isTerminalCmd = isCommandMode || rawInput.startsWith('!');
     
     // Add user message to UI
     const userMsg = { role: 'USR', content: rawInput };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
-    setIsThinking(true);
+    
+    if (isTerminalCmd) setIsTerminalExecution(true);
+    else setIsThinking(true);
 
     try {
       if (isTerminalCmd) {
         // TERMINAL MODE
-        const cmd = rawInput.substring(1).trim();
+        const cmd = isCommandMode ? rawInput : rawInput.substring(1).trim();
         const response = await fetch('http://127.0.0.1:8000/terminal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ command: cmd })
         });
         const data = await response.json();
-        setIsThinking(false);
+        setIsTerminalExecution(false);
         setMessages(prev => [...prev, { 
             role: 'VEY', 
             content: `TERMINAL_OUTPUT [${cmd}]:`,
             code: data.output,
-            ref: 'BASH/POWERSHELL'
+            cmd: cmd,
+            isTerminal: true
         }]);
       } else {
         // CHAT MODE
@@ -163,19 +267,38 @@ function App() {
         
         // Check for File Request tag
         const fileMatch = data.answer.match(/\[FILE_REQUEST:\s*([^\]]+)\]([\s\S]*?)\[\/FILE_REQUEST\]/);
+        const folderMatch = data.answer.match(/\[OPEN_FOLDER:\s*([^\]]+)\]/);
+        
+        let finalAnswer = data.answer;
+
+        if (folderMatch) {
+            const folderPath = folderMatch[1].trim();
+            finalAnswer = finalAnswer.replace(/\[OPEN_FOLDER:[\s\S]*?\]/, '').trim();
+            setMessages(prev => [...prev, { role: 'VEY', content: finalAnswer }]);
+            setMessages(prev => [...prev, { role: 'SYS', content: `Opening folder: ${folderPath}` }]);
+            // Reload workspace
+            fetch(`http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(folderPath)}`)
+                .then(res => res.json())
+                .then(wsData => setWorkspaceFiles(wsData.files || []))
+                .catch(() => {});
+            return;
+        }
+
         if (fileMatch) {
+            finalAnswer = finalAnswer.replace(/\[FILE_REQUEST:[\s\S]*?\[\/FILE_REQUEST\]/, '').trim();
             setPendingFileChange({
                 filename: fileMatch[1].trim(),
                 content: fileMatch[2].trim(),
-                originalResponse: data.answer.replace(/\[FILE_REQUEST:[\s\S]*?\[\/FILE_REQUEST\]/, '').trim()
+                originalResponse: finalAnswer
             });
-            setMessages(prev => [...prev, { role: 'VEY', content: "I've prepared a file change. Please review the request above." }]);
+            setMessages(prev => [...prev, { role: 'VEY', content: finalAnswer || "I've prepared a file change. Please review the request above." }]);
         } else {
-            setMessages(prev => [...prev, { role: 'VEY', content: data.answer }]);
+            setMessages(prev => [...prev, { role: 'VEY', content: finalAnswer }]);
         }
       }
     } catch (err) {
       setIsThinking(false);
+      setIsTerminalExecution(false);
       setMessages(prev => [...prev, { role: 'VEY', content: 'ERROR: SERVICE_UNREACHABLE. Check if backend is active.', error: true }]);
     }
   };
@@ -221,8 +344,19 @@ function App() {
   // Shortcut key listener
   useEffect(() => {
     const handleKeyDown = (e) => {
-        if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        const isInput = ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
+        if (e.key === '?' && !isInput) {
             setIsShortcutsOpen(prev => !prev);
+        }
+        if (e.key === '!' && !isInput) {
+            e.preventDefault();
+            setIsCommandMode(true);
+            document.querySelector('input[type="text"]')?.focus();
+        }
+        if (e.key === 'Escape') {
+            setIsCommandMode(false);
+            setIsShortcutsOpen(false);
+            setInput('');
         }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -286,15 +420,31 @@ function App() {
                   <span className="material-symbols-outlined text-[#38bdf8] text-lg">bolt</span>
                   <label className="uppercase text-white/40 text-[10px] font-bold tracking-[0.2em]">Groq Cloud LPU</label>
                 </div>
-                <div className="space-y-3">
-                    <span className="text-[9px] text-white/20 uppercase font-bold tracking-widest pl-1">API ACCESS KEY</span>
-                    <input 
-                      type="password"
-                      placeholder="gsk_********************"
-                      value={settings.groqKey}
-                      onChange={(e) => setSettings({...settings, groqKey: e.target.value})}
-                      className="w-full bg-[#0a0a0a] border border-white/10 rounded-sm px-4 py-4 text-[13px] font-mono text-white/80 focus:border-[#38bdf8]/40 outline-none placeholder:text-white/5"
-                    />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                      <span className="text-[9px] text-white/20 uppercase font-bold tracking-widest pl-1">API ACCESS KEY</span>
+                      <input 
+                        type="password"
+                        placeholder="gsk_********************"
+                        value={settings.groqKey}
+                        onChange={(e) => setSettings({...settings, groqKey: e.target.value})}
+                        className="w-full bg-[#0a0a0a] border border-white/10 rounded-sm px-4 py-3 text-[13px] font-mono text-white/80 focus:border-[#38bdf8]/40 outline-none placeholder:text-white/5"
+                      />
+                  </div>
+                  <div className="space-y-3">
+                    <span className="text-[9px] text-white/20 uppercase font-bold tracking-widest pl-1">Available Models</span>
+                    <select 
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="w-full bg-[#0a0a0a] border border-white/10 rounded-sm px-4 py-3 text-[11px] font-bold text-white/80 focus:border-[#38bdf8]/40 outline-none"
+                    >
+                      {groqModels.length > 0 ? (
+                        groqModels.map(m => <option key={m} value={m}>{m} (Production)</option>)
+                      ) : (
+                        <option>Enter Key to load models</option>
+                      )}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -378,14 +528,23 @@ function App() {
             <div className="max-w-4xl mx-auto w-full space-y-16 pb-32">
                 {messages.map((msg, i) => (
                 <div key={i} className={`flex gap-8 group ${msg.error ? 'opacity-50' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                    <div className={`w-10 h-10 flex-shrink-0 border flex items-center justify-center rounded-sm ${msg.role === 'VEY' ? 'border-[#4ade80]/30 bg-[#4ade80]/5' : 'border-white/10 bg-white/5'}`}>
-                    <span className={`text-[10px] font-black tracking-tighter ${msg.role === 'VEY' ? 'text-[#4ade80]' : 'text-white/40'}`}>{msg.role}</span>
+                    <div className={`w-10 h-10 flex-shrink-0 border flex items-center justify-center rounded-sm ${msg.role === 'VEY' || msg.role === 'SYS' ? 'border-[#4ade80]/30 bg-[#4ade80]/5' : 'border-white/10 bg-white/5'}`}>
+                        {msg.role === 'VEY' || msg.role === 'SYS' ? (
+                            <span className="material-symbols-outlined text-[#4ade80] text-[18px]">memory</span>
+                        ) : (
+                            <span className="material-symbols-outlined text-white/40 text-[18px]">person</span>
+                        )}
                     </div>
                     <div className="flex-1 space-y-6 min-w-0 pt-1">
-                    <div className={`${msg.role === 'VEY' ? 'text-white/90' : 'text-[#4ade80]'} text-[16px] leading-[1.7] break-words font-medium`}>
+                    {(msg.role === 'VEY' || msg.role === 'SYS') && (
+                        <div className="text-[#4ade80]/20 font-mono tracking-widest text-[10px] select-none uppercase mb-2">--------------------</div>
+                    )}
+                    <div className={`${msg.role === 'VEY' || msg.role === 'SYS' ? 'text-white/90' : 'text-[#4ade80]'} text-[16px] leading-[1.7] break-words font-medium`}>
                         {msg.content}
                     </div>
-                    {msg.code && (
+                    {msg.code && msg.isTerminal ? (
+                        <InteractiveTerminal initialCmd={msg.cmd} initialOutput={msg.code} />
+                    ) : (msg.code && (
                         <div className="bg-[#111] border border-white/5 p-8 font-mono text-[13px] group relative rounded-sm shadow-inner mt-4">
                         <div className="absolute right-6 top-6 text-[10px] text-white/20 flex gap-4 uppercase tracking-widest font-sans">
                             {msg.ref}
@@ -395,16 +554,17 @@ function App() {
                             {msg.code}
                         </pre>
                         </div>
-                    )}
+                    ))}
                     </div>
                 </div>
                 ))}
                 {isThinking && (
                   <div className="flex gap-8 animate-in fade-in duration-300">
                     <div className="w-10 h-10 flex-shrink-0 border border-[#4ade80]/30 bg-[#4ade80]/5 flex items-center justify-center rounded-sm">
-                      <span className="text-[10px] font-black tracking-tighter text-[#4ade80]">VEY</span>
+                      <span className="material-symbols-outlined text-[#4ade80] text-[18px] animate-spin">memory</span>
                     </div>
                     <div className="flex-1 pt-1">
+                      <div className="text-[#4ade80]/20 font-mono tracking-widest text-[10px] select-none uppercase mb-2">--------------------</div>
                       <div className="text-[#4ade80] text-[16px] font-black tracking-widest flex items-center gap-3">
                         <span className="font-mono text-xl w-4 text-center">{frames[thinkingFrame]}</span>
                         THINKING...
@@ -412,10 +572,24 @@ function App() {
                     </div>
                   </div>
                 )}
+                {isTerminalExecution && (
+                  <div className="flex gap-8 animate-in fade-in duration-300">
+                    <div className="w-10 h-10 flex-shrink-0 border border-[#facc15]/30 bg-[#facc15]/5 flex items-center justify-center rounded-sm">
+                      <span className="material-symbols-outlined text-[#facc15] text-[18px] animate-pulse">terminal</span>
+                    </div>
+                    <div className="flex-1 pt-1">
+                      <div className="text-[#facc15]/20 font-mono tracking-widest text-[10px] select-none uppercase mb-2">--------------------</div>
+                      <div className="text-[#facc15] text-[16px] font-black tracking-widest flex items-center gap-3">
+                        <span className="font-mono text-xl w-4 text-center">{frames[thinkingFrame]}</span>
+                        EXECUTING COMMAND...
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {pendingFileChange && (
                     <div className="flex gap-8 animate-in zoom-in-95 duration-300">
                         <div className="w-10 h-10 flex-shrink-0 border border-[#38bdf8]/30 bg-[#38bdf8]/5 flex items-center justify-center rounded-sm">
-                            <span className="text-[10px] font-black tracking-tighter text-[#38bdf8]">SYS</span>
+                            <span className="material-symbols-outlined text-[#38bdf8] text-[18px]">admin_panel_settings</span>
                         </div>
                         <div className="flex-1 bg-[#111] border border-[#38bdf8]/20 p-8 rounded-sm space-y-6 shadow-2xl">
                             <div className="flex items-center justify-between">
@@ -566,19 +740,22 @@ function App() {
             </div>
           )}
           <form className="w-full" onSubmit={handleSubmit}>
-            <div className="relative flex items-center group">
-                <span className={`absolute left-4 font-black text-xl transition-all duration-300 select-none ${isShortcutsOpen ? 'text-[#38bdf8]' : 'text-[#4ade80] opacity-40'}`}>
-                  {input.startsWith('!') ? '>' : '/'}
+            <div className={`relative flex items-center group ${isCommandMode ? 'ring-2 ring-[#facc15]/30' : ''}`}>
+                <span className={`absolute left-4 font-black text-xl transition-all duration-300 select-none ${isShortcutsOpen ? 'text-[#38bdf8]' : (isCommandMode ? 'text-[#facc15]' : 'text-[#4ade80] opacity-40')}`}>
+                  {isCommandMode || input.startsWith('!') ? '>' : '/'}
                 </span>
                 <input 
-                  className={`w-full bg-[#111] border rounded-sm focus:ring-1 text-[#4ade80] font-mono placeholder:text-white/5 pl-12 pr-32 text-lg transition-all py-6 tracking-tight shadow-2xl outline-none ${isShortcutsOpen ? 'border-[#38bdf8]/50 ring-[#38bdf8]/20' : 'border-white/5 focus:border-[#4ade80]/50 ring-[#4ade80]/20'}`} 
-                  placeholder={input.startsWith('!') ? "SYSTEM COMMAND..." : "EXECUTE ANALYTIC PROTOCOL..."} 
+                  className={`w-full bg-[#111] border rounded-sm focus:ring-1 ${isCommandMode ? 'text-[#facc15] border-[#facc15]/50 ring-[#facc15]/20 bg-[#111]/80' : 'text-[#4ade80]'} font-mono placeholder:text-white/5 pl-12 pr-32 text-lg transition-all py-6 tracking-tight shadow-2xl outline-none ${!isCommandMode && isShortcutsOpen ? 'border-[#38bdf8]/50 ring-[#38bdf8]/20' : (!isCommandMode ? 'border-white/5 focus:border-[#4ade80]/50 ring-[#4ade80]/20' : '')}`} 
+                  placeholder={isCommandMode || input.startsWith('!') ? "SYSTEM COMMAND..." : "EXECUTE ANALYTIC PROTOCOL..."} 
                   type="text"
                   autoFocus
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                 />
                 <div className="absolute right-4 flex items-center gap-4">
+                  {isCommandMode && (
+                      <span className="text-[10px] text-[#facc15] font-black tracking-widest uppercase mr-2 animate-pulse">CMD_MODE</span>
+                  )}
                   <button 
                     type="button" 
                     onClick={() => setIsShortcutsOpen(!isShortcutsOpen)}
@@ -586,7 +763,7 @@ function App() {
                   >
                     Shortcuts?
                   </button>
-                  <button type="submit" className="w-10 h-10 bg-[#4ade80]/10 border border-[#4ade80]/20 rounded-sm flex items-center justify-center hover:bg-[#4ade80] hover:text-[#0a0a0a] transition-all text-[#4ade80] shadow-[0_0_15px_rgba(74,222,128,0.2)]">
+                  <button type="submit" className={`w-10 h-10 ${isCommandMode ? 'bg-[#facc15]/10 border-[#facc15]/20 text-[#facc15] hover:bg-[#facc15]' : 'bg-[#4ade80]/10 border-[#4ade80]/20 text-[#4ade80] hover:bg-[#4ade80]'} rounded-sm flex items-center justify-center hover:text-[#0a0a0a] transition-all shadow-[0_0_15px_rgba(74,222,128,0.2)]`}>
                       <span className="material-symbols-outlined text-[20px]">send</span>
                   </button>
                 </div>

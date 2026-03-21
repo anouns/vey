@@ -24,13 +24,66 @@ app.add_middleware(
 CURRENT_WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Load models
-print("Loading models... (this may take a minute)")
-embed_model = SentenceTransformer('all-MiniLM-L6-v2')
-model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-tokenizer = AutoTokenizer.from_pretrained(model_id)
+print("Loading VEY.AI Semantic Databanks... (this may take a minute)")
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+embed_model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+
+# Advanced Top-Tier Coding LLM Model Upgrade
+model_id = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 llm_model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float32 if device == "cpu" else torch.float16).to(device)
-print(f"Models loaded on {device}.")
+print(f"VEY.AI Core Online on {device}.")
+
+# Intelligent Vector Database Store
+DOC_DB = []
+EMBED_DB = None
+LAST_INDEXED_PATH = None
+
+def build_vector_database(root_dir):
+    global DOC_DB, EMBED_DB, LAST_INDEXED_PATH
+    if root_dir == LAST_INDEXED_PATH and EMBED_DB is not None: return
+    
+    print(f"Indexing VEY.AI Massive Databank for: {root_dir}")
+    DOC_DB = []
+    allowed_exts = {'.rs', '.py', '.js', '.jsx', '.html', '.css', '.toml', '.json', '.md', '.txt', '.txt'}
+    ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '__pycache__'}
+    
+    for root, dirs, filenames in os.walk(root_dir):
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        for f in filenames:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in allowed_exts:
+                file_path = os.path.join(root, f)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                        
+                        chunk_size = 900
+                        for i in range(0, len(content), chunk_size):
+                            snippet = content[i:i+chunk_size]
+                            chunk_text = f"--- FILE: {os.path.relpath(file_path, root_dir)} (CHUNk {i//chunk_size}) ---\n{snippet}\n"
+                            DOC_DB.append(chunk_text)
+                except: continue
+                
+    if DOC_DB:
+        embeddings = embed_model.encode(DOC_DB, convert_to_tensor=True)
+        EMBED_DB = embeddings
+    else:
+        EMBED_DB = None
+    LAST_INDEXED_PATH = root_dir
+    print(f"VEY.AI Indexing Complete. Databank active with {len(DOC_DB)} vectors.")
+
+def retrieve_top_k(query, k=4):
+    if not DOC_DB or EMBED_DB is None: return "NO RELEVANT FILES."
+    query_emb = embed_model.encode([query], convert_to_tensor=True)
+    cos_scores = torch.nn.functional.cosine_similarity(query_emb, EMBED_DB)
+    top_scores, top_idx = torch.topk(cos_scores, min(k, len(DOC_DB)))
+    
+    retrieved = []
+    for idx in top_idx:
+        retrieved.append(DOC_DB[idx.item()])
+    return "\n".join(retrieved)
 
 class ChatRequest(BaseModel):
     messages: list
@@ -68,63 +121,40 @@ async def execute_command(request: TerminalRequest):
     except Exception as e:
         return {"output": f"CRITICAL_ERROR: {str(e)}"}
 
-def get_project_context(root_path=None):
-    context_parts = []
-    global CURRENT_WORKSPACE
-    root_dir = root_path or CURRENT_WORKSPACE
-    allowed_exts = {'.rs', '.py', '.js', '.jsx', '.html', '.css', '.toml', '.json', '.md', '.txt'}
-    ignore_dirs = {'.git', 'node_modules', 'dist', 'build', '__pycache__'}
-    total_chars = 0
-    max_chars = 5000 
-    
-    for root, dirs, filenames in os.walk(root_dir):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
-        for f in filenames:
-            ext = os.path.splitext(f)[1].lower()
-            if ext in allowed_exts:
-                file_path = os.path.join(root, f)
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as file:
-                        content = file.read()
-                        snippet = f"--- FILE: {os.path.relpath(file_path, root_dir)} ---\n{content}\n"
-                        if total_chars + len(snippet) < max_chars:
-                            context_parts.append(snippet)
-                            total_chars += len(snippet)
-                        else: break
-                except: continue
-        if total_chars >= max_chars: break
-    return "\n".join(context_parts)
-
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
-        context = get_project_context()
         last_msg = request.messages[-1]['content']
         
         if request.model == "PYTHON_LOCAL_AI":
-            prompt = (
-                "<|system|>\n"
-                "You are VEY AI CORE. Expert in project analysis and modification. "
-                "SUPPORT LANGUAGES: English, Russian. "
-                "CRITICAL: Always respond in the SAME language as the user's query. "
-                "You can request to CREATE or MODIFY files if the user asks. "
-                "To request a file change, use this EXACT format in your response:\n"
+            build_vector_database(CURRENT_WORKSPACE)
+            context = retrieve_top_k(last_msg, k=4)
+            
+            system_instruction = (
+                "You are VEY.AI. An extremely advanced and highly optimized software engineering AI. "
+                "CRITICAL: ALWAYS respond EXACTLY and EXCLUSIVELY in the Russian language (ОТВЕЧАЙ НА РУССКОМ, код оставляй как есть). "
+                "Analyze the provided semantic vector database context to answer accurately. "
+                "To request a file change, use EXACT format:\n"
                 "[FILE_REQUEST: filename] NEW CONTENT HERE [/FILE_REQUEST]\n"
-                "EXAMPLE:\n"
-                "User: Create a hello.txt file with 'Hi'\n"
-                "Assistant: I will create the file for you.\n"
-                "[FILE_REQUEST: hello.txt] Hi [/FILE_REQUEST]\n"
-                "Analyze the provided source code context to answer accurately.\n"
-                "CONTEXT:\n"
-                f"{context}\n"
-                "<|user|>\n"
-                f"{last_msg}\n"
-                "<|assistant|>\n"
+                "To open a folder:\n"
+                "[OPEN_FOLDER: /path/to/folder]\n"
+                f"\n--- VEY.AI LOCAL DATABANKS ---:\n{context}\n"
             )
-            inputs = tokenizer(prompt, return_tensors="pt").to(device)
+            
+            messages_for_llm = [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": last_msg}
+            ]
+            
+            text = tokenizer.apply_chat_template(messages_for_llm, tokenize=False, add_generation_prompt=True)
+            inputs = tokenizer([text], return_tensors="pt", truncation=True, max_length=2048).to(device)
+            
             with torch.no_grad():
-                outputs = llm_model.generate(**inputs, max_new_tokens=400, temperature=0.3, top_p=0.9, repetition_penalty=1.1, do_sample=True)
-            answer = tokenizer.decode(outputs[0], skip_special_tokens=True).split("<|assistant|>")[-1].strip()
+                outputs = llm_model.generate(**inputs, max_new_tokens=600, temperature=0.3, top_p=0.9, repetition_penalty=1.1)
+                
+            generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, outputs)]
+            answer = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+            
             return {"answer": answer}
         
         # Fallbacks for Ollama/Groq (placeholders as before)
@@ -156,11 +186,12 @@ async def list_files(path: str = None):
             if ".git" in dirs: dirs.remove(".git")
             if "node_modules" in dirs: dirs.remove("node_modules")
             rel_path = os.path.relpath(root, root_dir)
-            if rel_path == ".": continue
-            files.append({"name": os.path.basename(root), "type": "directory", "path": rel_path})
+            if rel_path != ".":
+                files.append({"name": os.path.basename(root), "type": "directory", "path": rel_path})
             for f in filenames:
-                files.append({"name": f, "type": "file", "path": os.path.join(rel_path, f)})
-        return {"files": files[:100]}
+                file_path = f if rel_path == "." else os.path.join(rel_path, f)
+                files.append({"name": f, "type": "file", "path": file_path})
+        return {"files": files[:150]}
     except Exception as e: return {"error": str(e)}
 
 if __name__ == "__main__":
