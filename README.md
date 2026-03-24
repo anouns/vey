@@ -235,23 +235,35 @@ vey-ai-setup.exe (или vey-ai-windows-x64.exe).
 
 Установка из исходного кода (для разработчиков)
 Bash# 1. Клонирование
+```
 git clone https://github.com/anouns/vey.git
 cd vey
+```
 
 # 2. Установка Python-зависимостей
+```
 pip install fastapi pydantic torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install sentence-transformers uvicorn psutil requests pypdf pillow pytesseract
+```
 
 # 3. Переход в папку фронтенда
+```
 cd vey-v2
+```
 
 # 4. Установка npm-зависимостей
+```
 npm install
+```
 
 # 5. Запуск в режиме разработки
+```
 npm run tauri dev
+```
 Сборка в один исполняемый файл
+```
 Bashnpm run tauri build
+```
 Готовый .exe появится в vey-v2/src-tauri/target/release/.
 
 Системные требования (подробно)
