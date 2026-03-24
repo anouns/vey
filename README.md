@@ -189,15 +189,15 @@ WORKSPACE_RAG_RULES.md — редактируйте здесь размер ча
 <img width="1280" height="680" alt="image" src="https://github.com/user-attachments/assets/e02a2524-075d-4795-aec5-e98ec9f1a260" />
 (Описание: левая панель — дерево файлов, центр — чат, верх — выбор модели, статус индексации, индикаторы CPU/RAM)
                          
-3. Встроенный терминал в чате
+2. Встроенный терминал в чате
 <img width="1280" height="685" alt="image" src="https://github.com/user-attachments/assets/e5013494-46f7-4b11-ae8c-2db65f12dea9" />
-4. Панель настроек
+3. Панель настроек
 <img width="1280" height="684" alt="image" src="https://github.com/user-attachments/assets/42966c85-57a4-4186-884a-10f1a7c373ef" />
 (Описание: выбор Qwen / Ollama / Groq + графики загрузки ресурсов)
-5. Экран первого запуска и скачивания модели
+4. Экран первого запуска и скачивания модели
 <img width="1280" height="686" alt="image" src="https://github.com/user-attachments/assets/dd43c971-826c-4180-9efb-11a880b8744f" />
 (Описание: прогресс-бар скачивания ~3 ГБ модели + подробные инструкции)
-6. Пример работы с PDF-книгой и OCR
+5. Пример работы с PDF-книгой и OCR
 <img width="1280" height="679" alt="image" src="https://github.com/user-attachments/assets/9850f3a4-aded-4e1d-bf3d-2c4ebcfafbcd" />
 (Описание: запрос по содержимому книги и ответ с цитатой из страницы)
 
