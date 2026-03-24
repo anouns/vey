@@ -1,67 +1,81 @@
 @echo off
 setlocal EnableExtensions
 
-where node >nul 2>nul
-if errorlevel 1 (
-  echo Node.js was not found in PATH.
-  echo Install Node.js 20+ and run this installer again.
-  pause
-  exit /b 1
-)
+echo ==========================================
+echo   VEY.AI Desktop - Installer
+echo ==========================================
+echo.
 
 set "SCRIPT_DIR=%~dp0"
-set "PAYLOAD_ZIP=%SCRIPT_DIR%payload.zip"
-set "INSTALL_DIR=%LOCALAPPDATA%\Programs\vey-tui"
+set "INSTALL_DIR=%LOCALAPPDATA%\Programs\VEY-AI"
 set "BIN_DIR=%INSTALL_DIR%\bin"
-set "LAUNCHER=%BIN_DIR%\vey.cmd"
+set "DESKTOP_SHORTCUT=%USERPROFILE%\Desktop\VEY.AI.lnk"
 
+:: Check for payload
+set "PAYLOAD_ZIP=%SCRIPT_DIR%payload.zip"
 if not exist "%PAYLOAD_ZIP%" (
   set "PAYLOAD_ZIP=%SCRIPT_DIR%..\payload.zip"
 )
-
 if not exist "%PAYLOAD_ZIP%" (
-  echo payload.zip was not found next to the installer script.
+  echo [ERROR] payload.zip not found!
   pause
   exit /b 1
 )
 
-echo Installing vey.TUI to:
+echo Installing VEY.AI to:
 echo   %INSTALL_DIR%
+echo.
 
+:: Clean previous install
 if exist "%INSTALL_DIR%" (
+  echo Removing previous installation...
   rmdir /s /q "%INSTALL_DIR%"
 )
 
 mkdir "%INSTALL_DIR%" >nul 2>nul
 mkdir "%BIN_DIR%" >nul 2>nul
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%PAYLOAD_ZIP%' -DestinationPath '%LOCALAPPDATA%\Programs' -Force"
+:: Extract payload
+echo Extracting files...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%PAYLOAD_ZIP%' -DestinationPath '%INSTALL_DIR%' -Force"
 if errorlevel 1 (
-  echo Failed to unpack payload.zip
+  echo [ERROR] Failed to unpack payload.zip
   pause
   exit /b 1
 )
 
+:: Create launcher batch file
 (
   echo @echo off
-  echo setlocal
-  echo node "%INSTALL_DIR%\src\index.js" %%*
-) > "%LAUNCHER%"
+  echo start "" "%INSTALL_DIR%\vey-desktop.exe"
+) > "%BIN_DIR%\vey.cmd"
 
+:: Add to PATH
+echo Adding to user PATH...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$bin = [IO.Path]::GetFullPath('%BIN_DIR%');" ^
   "$current = [Environment]::GetEnvironmentVariable('Path','User');" ^
   "if ([string]::IsNullOrWhiteSpace($current)) { $current = '' };" ^
   "$parts = @($current -split ';' | Where-Object { $_ });" ^
   "if ($parts -notcontains $bin) { $parts += $bin; [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User') }"
-if errorlevel 1 (
-  echo Failed to update user PATH.
-  pause
-  exit /b 1
-)
+
+:: Create Desktop Shortcut
+echo Creating desktop shortcut...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$WshShell = New-Object -comObject WScript.Shell;" ^
+  "$Shortcut = $WshShell.CreateShortcut('%DESKTOP_SHORTCUT%');" ^
+  "$Shortcut.TargetPath = '%INSTALL_DIR%\vey-desktop.exe';" ^
+  "$Shortcut.WorkingDirectory = '%INSTALL_DIR%';" ^
+  "$Shortcut.Description = 'VEY.AI Desktop';" ^
+  "$Shortcut.Save()"
 
 echo.
-echo vey.TUI installed successfully.
-echo Open a new terminal and run:
-echo   vey
+echo ==========================================
+echo   VEY.AI installed successfully!
+echo ==========================================
+echo.
+echo You can:
+echo   1. Double-click the desktop shortcut "VEY.AI"
+echo   2. Open a new terminal and type: vey
+echo.
 pause

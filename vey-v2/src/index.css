@@ -1,21 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-sans: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background-color: #0e0e0e;
+  background-color: #080a08;
   color: white;
   font-family: var(--font-sans);
   margin: 0;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden; /* Prevent body scroll, use container scroll instead */
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  min-height: 100vh;
+  min-width: 0;
 }
 
 .font-mono {
@@ -27,6 +34,7 @@ body {
   font-size: 1.25rem;
 }
 
+/* Hidden scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -35,64 +43,10 @@ body {
   scrollbar-width: none;
 }
 
-.custom-scrollbar-mini::-webkit-scrollbar {
-  display: none;
-}
-.custom-scrollbar-mini {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-/* The following rules are for custom scrollbar appearance, not hiding */
-/* If you want to hide scrollbars, use the .custom-scrollbar and .custom-scrollbar-mini classes above */
-/* If you want custom appearance, apply these rules to a different class or remove the hiding rules */
-/*
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(74, 222, 128, 0.1);
-  border-radius: 2px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(74, 222, 128, 0.3);
-}
-*/
-
-.scanline {
-  width: 100%;
-  height: 100px;
-  z-index: 20;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(74, 222, 128, 0.02) 50%, rgba(0, 0, 0, 0) 100%);
-  opacity: 0.1;
-  position: fixed;
-  bottom: 100%;
-  animation: scanline 8s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes scanline {
-  0% { bottom: 100%; }
-  100% { bottom: -10%; }
-}
-
-.blink-cursor {
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  from, to { opacity: 1; }
-  50% { opacity: 0; }
-}
-
+/* Markdown Styles */
 .markdown-body p {
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
+  line-height: 1.75;
 }
 .markdown-body p:last-child {
   margin-bottom: 0;
@@ -100,54 +54,66 @@ body {
 .markdown-body ul {
   list-style-type: disc;
   margin-left: 1.5rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 .markdown-body ol {
   list-style-type: decimal;
   margin-left: 1.5rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 .markdown-body li {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
+  line-height: 1.7;
 }
 .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
-  font-weight: 800;
-  margin-top: 2rem;
-  margin-bottom: 1rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
   color: #4ade80;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
 }
-.markdown-body h1 { font-size: 1.75em; }
-.markdown-body h2 { font-size: 1.5em; }
-.markdown-body h3 { font-size: 1.25em; }
-.markdown-body h4 { font-size: 1.1em; color: #fff; }
+.markdown-body h1 { font-size: 1.5em; }
+.markdown-body h2 { font-size: 1.3em; }
+.markdown-body h3 { font-size: 1.15em; }
+.markdown-body h4 { font-size: 1.05em; color: #e0e0e0; }
 .markdown-body strong {
   color: #fff;
-  font-weight: 700;
+  font-weight: 600;
 }
 .markdown-body em {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.75);
   font-style: italic;
 }
 .markdown-body blockquote {
-  border-left: 4px solid #4ade80;
+  border-left: 3px solid #4ade80;
   padding-left: 1rem;
-  color: rgba(255, 255, 255, 0.7);
-  margin-bottom: 1.25rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 1rem;
   font-style: italic;
 }
 .markdown-body code:not(pre code) {
-  background: rgba(74, 222, 128, 0.1);
+  background: rgba(74, 222, 128, 0.08);
   color: #4ade80;
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 0.85em;
+  font-size: 0.875em;
+}
+.markdown-body pre {
+  background: #0a0c0a;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  overflow-x: auto;
 }
 .markdown-body pre code {
   background: transparent;
   padding: 0;
   border-radius: 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.85em;
+  line-height: 1.6;
 }
 .markdown-body a {
   color: #38bdf8;
@@ -156,4 +122,25 @@ body {
 }
 .markdown-body a:hover {
   color: #7dd3fc;
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.9em;
+}
+.markdown-body th {
+  background: rgba(74, 222, 128, 0.05);
+  font-weight: 600;
+  color: #4ade80;
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 1.5rem 0;
 }
