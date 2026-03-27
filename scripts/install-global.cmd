@@ -44,10 +44,32 @@ if errorlevel 1 (
   exit /b 1
 )
 
+:: Move files from VEY-AI subfolder if exists
+if exist "%INSTALL_DIR%\VEY-AI" (
+  echo Moving files from archive subfolder...
+  xcopy /E /Y /Q "%INSTALL_DIR%\VEY-AI\*" "%INSTALL_DIR%\" >nul 2>nul
+  rmdir /s /q "%INSTALL_DIR%\VEY-AI" >nul 2>nul
+)
+
+:: Find the actual VEY executable
+set "VEY_EXE="
+if exist "%INSTALL_DIR%\VEY.AI.exe" set "VEY_EXE=VEY.AI.exe"
+if exist "%INSTALL_DIR%\vey-desktop.exe" set "VEY_EXE=vey-desktop.exe"
+if exist "%INSTALL_DIR%\VEY-AI.exe" set "VEY_EXE=VEY-AI.exe"
+
+if "%VEY_EXE%"=="" (
+  echo [ERROR] No VEY executable found after extracting!
+  dir "%INSTALL_DIR%\*.exe"
+  pause
+  exit /b 1
+)
+
+echo Found executable: %VEY_EXE%
+
 :: Create launcher batch file
 (
   echo @echo off
-  echo start "" "%INSTALL_DIR%\vey-desktop.exe"
+  echo start "" "%INSTALL_DIR%\%VEY_EXE%"
 ) > "%BIN_DIR%\vey.cmd"
 
 :: Add to PATH
@@ -64,7 +86,7 @@ echo Creating desktop shortcut...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$WshShell = New-Object -comObject WScript.Shell;" ^
   "$Shortcut = $WshShell.CreateShortcut('%DESKTOP_SHORTCUT%');" ^
-  "$Shortcut.TargetPath = '%INSTALL_DIR%\vey-desktop.exe';" ^
+  "$Shortcut.TargetPath = '%INSTALL_DIR%\%VEY_EXE%';" ^
   "$Shortcut.WorkingDirectory = '%INSTALL_DIR%';" ^
   "$Shortcut.Description = 'VEY.AI Desktop';" ^
   "$Shortcut.Save()"
@@ -78,4 +100,7 @@ echo You can:
 echo   1. Double-click the desktop shortcut "VEY.AI"
 echo   2. Open a new terminal and type: vey
 echo.
-pause
+echo Launching VEY.AI now...
+start "" "%INSTALL_DIR%\%VEY_EXE%"
+echo.
+timeout /t 5

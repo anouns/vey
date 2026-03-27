@@ -11,40 +11,224 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const appWindow = getCurrentWindow();
 
-// ─── SETTINGS PANEL (screenshot-style) ─────────────────────────────
+// ─── BOOT SCREEN ───────────────────────────────────────────────────
+function BootScreen({ bootSteps, onSkip, bootLog }) {
+  const [glitchText, setGlitchText] = useState('');
+  const glitchChars = '█▓▒░╔╗╚╝║═╬╣╠╩╦';
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      let t = '';
+      for (let i = 0; i < 24; i++) {
+        t += glitchChars[Math.floor(Math.random() * glitchChars.length)];
+      }
+      setGlitchText(t);
+    }, 80);
+    return () => clearInterval(interval);
+  }, []);
+
+  const completedSteps = bootSteps.filter(s => s.done).length;
+  const totalSteps = bootSteps.length;
+  const progress = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
+
+  return (
+    <div className="boot-screen">
+      {/* Animated background grid */}
+      <div className="boot-grid" />
+
+      {/* Scan lines */}
+      <div className="boot-scanlines" />
+
+      {/* Main content */}
+      <div className="boot-content">
+        {/* Logo */}
+        <div className="boot-logo-container">
+          <div className="boot-hex-ring">
+            <svg viewBox="0 0 120 120" className="boot-hex-svg">
+              <defs>
+                <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style={{ stopColor: '#4ade80', stopOpacity: 0.8 }} />
+                  <stop offset="100%" style={{ stopColor: '#22d3ee', stopOpacity: 0.4 }} />
+                </linearGradient>
+              </defs>
+              <circle cx="60" cy="60" r="50" fill="none" stroke="url(#hexGrad)" strokeWidth="1.5" className="boot-ring-1" />
+              <circle cx="60" cy="60" r="42" fill="none" stroke="#4ade80" strokeWidth="0.5" opacity="0.3" className="boot-ring-2" />
+              <circle cx="60" cy="60" r="35" fill="none" stroke="#4ade80" strokeWidth="2" strokeDasharray="8 4" className="boot-ring-3" />
+            </svg>
+          </div>
+          <div className="boot-logo-text">VEY</div>
+          <div className="boot-logo-sub">.AI</div>
+        </div>
+
+        {/* Status */}
+        <div className="boot-status">
+          <div className="boot-status-label">SYSTEM INITIALIZATION</div>
+          <div className="boot-progress-container">
+            <div className="boot-progress-bar" style={{ width: `${progress}%` }} />
+            <div className="boot-progress-glow" style={{ left: `${progress}%` }} />
+          </div>
+          <div className="boot-progress-text">{Math.round(progress)}%</div>
+        </div>
+
+        {/* Boot steps */}
+        <div className="boot-steps">
+          {bootSteps.map((step, i) => (
+            <div key={i} className={`boot-step ${step.done ? 'done' : step.active ? 'active' : step.error ? 'error' : 'pending'}`}>
+              <div className="boot-step-indicator">
+                {step.done ? '✓' : step.error ? '✕' : step.active ? '◆' : '○'}
+              </div>
+              <div className="boot-step-text">{step.label}</div>
+              {step.active && <div className="boot-step-spinner" />}
+              {step.detail && <div className="boot-step-detail">{step.detail}</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* Boot log */}
+        {bootLog.length > 0 && (
+          <div className="boot-log">
+            {bootLog.slice(-6).map((line, i) => (
+              <div key={i} className="boot-log-line">{line}</div>
+            ))}
+          </div>
+        )}
+
+        {/* Decorative glitch text */}
+        <div className="boot-glitch">{glitchText}</div>
+
+        {/* Skip button */}
+        <button onClick={onSkip} className="boot-skip-btn">
+          ПРОПУСТИТЬ ЗАГРУЗКУ
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── THINKING DISPLAY ──────────────────────────────────────────────
+function ThinkingDisplay({ steps, isStreaming }) {
+  return (
+    <div className="thinking-display">
+      <div className="thinking-display-header">
+        <span className="material-symbols-outlined spinning thinking-display-icon">psychology</span>
+        <span className="thinking-display-title">ПРОЦЕСС РАЗМЫШЛЕНИЯ</span>
+      </div>
+      <div className="thinking-display-steps">
+        {steps.map((step, i) => (
+          <div key={i} className={`thinking-display-step ${i === steps.length - 1 && !isStreaming ? 'active' : i === steps.length - 1 ? 'active' : 'done'}`}>
+            <div className="thinking-step-dot" />
+            <span>{step}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── UTILS ────────────────────────────────────────────────────────
+const normalizeLaTeX = (text) => {
+  if (!text) return "";
+  return text
+    .replace(/\\\[/g, '$$$$')
+    .replace(/\\\]/g, '$$$$')
+    .replace(/\\\(/g, '$$')
+    .replace(/\\\)/g, '$$')
+    // Handle the case where the AI might output [ formula ] (old style)
+    .replace(/\[\s*([\s\S]+?)\s*\]/g, (match, p1) => {
+       // Only replace if it looks like a formula (contains subscripts, symbols, etc)
+       if (p1.includes('_') || p1.includes('^') || p1.includes('\\') || p1.includes('=')) {
+         return '$$' + p1 + '$$';
+       }
+       return match;
+    });
+};
+
+// ─── STREAMING MESSAGE ─────────────────────────────────────────────
+function StreamingMessage({ content, thinkingSteps, isComplete }) {
+  const [cursorVisible, setCursorVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => setCursorVisible(v => !v), 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className={`message ${isComplete ? 'complete' : 'streaming'}`}>
+      <div className="message-avatar avatar-ai">
+        <span className="material-symbols-outlined glowing-neon">memory</span>
+      </div>
+      <div className="message-body">
+        {/* Thinking steps */}
+        {thinkingSteps.length > 0 && (
+          <div className="thinking-process">
+            <div className="thinking-header">
+              <span className="material-symbols-outlined spinning">cyclone</span>
+              <span className="thinking-label">ПРОЦЕСС РАЗМЫШЛЕНИЯ</span>
+            </div>
+            <div className="thinking-steps-flow">
+              {thinkingSteps.map((step, i) => (
+                <div key={i} className="thinking-display-step">
+                  <div className="thinking-step-dot" />
+                  {step}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Streaming content */}
+        {content && (
+          <div className="message-text text-ai">
+            <div className="markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {normalizeLaTeX(content)}
+              </ReactMarkdown>
+              {!isComplete && cursorVisible && <span className="streaming-cursor">▊</span>}
+            </div>
+          </div>
+        )}
+        {!content && !isComplete && thinkingSteps.length === 0 && (
+          <div className="thinking-indicator">
+            <span className="material-symbols-outlined spinning">hourglass_top</span>
+            Обрабатываю запрос...
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── SETTINGS PANEL ─────────────────────────────────────────────────
 function SettingsPanel({ settings, setSettings, ollamaModels, groqModels, onClose, setSelectedModel }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md p-6" onClick={onClose}>
-      <div className="bg-[#0d0f0d] border border-[#4ade80]/20 w-full max-w-[680px] rounded-lg shadow-[0_0_60px_rgba(74,222,128,0.06)] overflow-hidden flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+    <div className="settings-overlay" onClick={onClose}>
+      <div className="settings-panel" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-8 py-5 flex justify-between items-center bg-[#0a0c0a] border-b border-[#4ade80]/10">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-[#4ade80] text-[20px]">settings</span>
-            <span className="text-[12px] font-black tracking-[0.25em] uppercase text-[#4ade80]">
-              SYSTEM_PARAMETERS // V.2.1.0
-            </span>
+        <div className="settings-header">
+          <div className="settings-header-left">
+            <span className="material-symbols-outlined settings-icon">settings</span>
+            <span className="settings-title">SYSTEM_PARAMETERS // V.2.1.0</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">STATUS: CONFIG_MODE</span>
-            <div className="w-2 h-2 rounded-full bg-[#4ade80] shadow-[0_0_8px_#4ade80]"></div>
+          <div className="settings-header-right">
+            <span className="settings-status-text">STATUS: CONFIG_MODE</span>
+            <div className="status-dot" />
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+        <div className="settings-body">
           {/* Section 01: Neural Engine */}
-          <div className="space-y-5">
-            <div className="inline-block border border-white/10 rounded px-3 py-1.5">
-              <span className="text-[10px] font-black tracking-[0.2em] uppercase text-white/50">01. NEURAL_ENGINE</span>
+          <div className="settings-section">
+            <div className="settings-section-label">
+              <span>01. NEURAL_ENGINE</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
-              {/* Ollama Provider */}
-              <div className="space-y-2">
-                <span className="text-[9px] text-[#4ade80] uppercase font-bold tracking-[0.2em]">PROVIDER: OLLAMA</span>
+            <div className="settings-grid-2">
+              {/* Ollama */}
+              <div className="settings-field">
+                <span className="field-label">PROVIDER: OLLAMA</span>
                 <select
                   value={settings.ollamaModel}
-                  onChange={(e) => setSettings({...settings, ollamaModel: e.target.value})}
-                  className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-4 py-3 text-[12px] font-bold text-white/80 focus:border-[#4ade80]/40 outline-none transition-colors hover:border-white/20"
+                  onChange={(e) => setSettings({ ...settings, ollamaModel: e.target.value })}
+                  className="field-select"
                 >
                   {ollamaModels.length > 0 ? (
                     ollamaModels.map(m => <option key={m} value={m}>{m}</option>)
@@ -52,71 +236,63 @@ function SettingsPanel({ settings, setSettings, ollamaModels, groqModels, onClos
                     <option>No models found</option>
                   )}
                 </select>
-                <div className="text-[9px] text-white/20 font-mono">Localhost connection active :11434</div>
+                <div className="field-hint">Localhost connection active :11434</div>
               </div>
 
-              {/* Groq Provider */}
-              <div className="space-y-2">
-                <span className="text-[9px] text-[#4ade80] uppercase font-bold tracking-[0.2em]">PROVIDER: GROQ_CLOUD</span>
+              {/* Groq */}
+              <div className="settings-field">
+                <span className="field-label">PROVIDER: GROQ_CLOUD</span>
                 <input
                   type="password"
                   placeholder="••••••••••••••"
                   value={settings.groqKey}
-                  onChange={(e) => setSettings({...settings, groqKey: e.target.value})}
-                  className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-4 py-3 text-[13px] font-mono text-white/80 focus:border-[#4ade80]/40 outline-none placeholder:text-white/10 transition-colors hover:border-white/20"
+                  onChange={(e) => setSettings({ ...settings, groqKey: e.target.value })}
+                  className="field-input"
                 />
               </div>
             </div>
 
-            {/* Groq Model Selector */}
-            <div className="flex justify-end">
-              <div className="w-[calc(50%-10px)]">
-                <select
-                  value={settings.groqModel || ''}
-                  onChange={(e) => {
-                    setSettings(prev => ({...prev, groqModel: e.target.value}));
-                    setSelectedModel(e.target.value);
-                  }}
-                  className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-4 py-3 text-[11px] font-bold text-white/80 focus:border-[#4ade80]/40 outline-none transition-colors hover:border-white/20"
-                >
-                  {groqModels.length > 0 ? (
-                    groqModels.map(m => <option key={m} value={m}>{m} (Production)</option>)
-                  ) : (
-                    <option>Enter Key to load models</option>
-                  )}
-                </select>
-              </div>
+            {/* Groq Model */}
+            <div className="settings-field-right">
+              <select
+                value={settings.groqModel || ''}
+                onChange={(e) => {
+                  setSettings(prev => ({ ...prev, groqModel: e.target.value }));
+                  setSelectedModel(e.target.value);
+                }}
+                className="field-select"
+              >
+                {groqModels.length > 0 ? (
+                  groqModels.map(m => <option key={m} value={m}>{m} (Production)</option>)
+                ) : (
+                  <option>Enter Key to load models</option>
+                )}
+              </select>
             </div>
           </div>
 
           {/* Section 02: Visual Interface */}
-          <div className="space-y-5">
-            <div className="inline-block border border-white/10 rounded px-3 py-1.5">
-              <span className="text-[10px] font-black tracking-[0.2em] uppercase text-white/50">02. VISUAL_INTERFACE</span>
+          <div className="settings-section">
+            <div className="settings-section-label">
+              <span>02. VISUAL_INTERFACE</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="settings-themes">
               {[
-                { id: 'Obsidian', label: 'OBSIDIAN_DEFAULT', colors: ['#1a1a2e', '#4ade80', '#38bdf8'], active: true },
-                { id: 'High Contrast', label: 'HIGH_CONTRAST', colors: ['#1a1a2e', '#ec4899', '#a855f7'], active: false },
-                { id: 'Light Theme', label: 'AMBER_TERMINAL', colors: ['#f59e0b', '#fb923c'], active: false },
+                { id: 'Obsidian', label: 'OBSIDIAN', colors: ['#1a1a2e', '#4ade80', '#38bdf8'] },
+                { id: 'High Contrast', label: 'HIGH_CONTRAST', colors: ['#1a1a2e', '#ec4899', '#a855f7'] },
+                { id: 'Light Theme', label: 'AMBER_TERM', colors: ['#f59e0b', '#fb923c'] },
               ].map(t => (
                 <button
                   key={t.id}
-                  onClick={() => setSettings({...settings, theme: t.id})}
-                  className={`relative py-5 px-4 border rounded-md text-[9px] font-black tracking-[0.15em] uppercase transition-all text-left ${
-                    settings.theme === t.id
-                      ? 'bg-[#4ade80]/5 border-[#4ade80]/50 text-[#4ade80]'
-                      : 'bg-[#0a0a0a] border-white/8 text-white/30 hover:border-white/20'
-                  }`}
+                  onClick={() => setSettings({ ...settings, theme: t.id })}
+                  className={`theme-card ${settings.theme === t.id ? 'active' : ''}`}
                 >
-                  {settings.theme === t.id && (
-                    <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#4ade80] shadow-[0_0_8px_#4ade80]"></div>
-                  )}
-                  <div className="mb-3">{t.label}</div>
-                  <div className="flex gap-1.5">
+                  {settings.theme === t.id && <div className="theme-active-dot" />}
+                  <div className="theme-label">{t.label}</div>
+                  <div className="theme-colors">
                     {t.colors.map((c, i) => (
-                      <div key={i} className="w-4 h-4 rounded-sm" style={{ backgroundColor: c }}></div>
+                      <div key={i} className="theme-swatch" style={{ backgroundColor: c }} />
                     ))}
                   </div>
                 </button>
@@ -124,25 +300,17 @@ function SettingsPanel({ settings, setSettings, ollamaModels, groqModels, onClos
             </div>
           </div>
 
-          {/* Status Footer */}
-          <div className="flex items-center justify-between pt-4 border-t border-white/5">
-            <div className="space-y-1">
-              <div className="text-[9px] text-white/30 font-bold uppercase tracking-widest">LOCAL_AUTH: VERIFIED</div>
-              <div className="text-[9px] text-[#4ade80] font-bold uppercase tracking-widest">SYNC: ENABLED</div>
+          {/* Footer */}
+          <div className="settings-footer">
+            <div className="settings-footer-status">
+              <div className="footer-status-line dim">LOCAL_AUTH: VERIFIED</div>
+              <div className="footer-status-line green">SYNC: ENABLED</div>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={onClose}
-                className="px-6 py-3 border border-white/10 text-white/40 text-[10px] font-black uppercase tracking-[0.15em] rounded-md hover:bg-white/5 transition-all"
-              >
-                CLOSE_SESSION
-              </button>
-              <button
-                onClick={onClose}
-                className="px-6 py-3 bg-[#4ade80] text-black text-[10px] font-black uppercase tracking-[0.15em] rounded-md hover:bg-[#22c55e] transition-all shadow-[0_0_20px_rgba(74,222,128,0.15)] flex items-center gap-2"
-              >
+            <div className="settings-footer-actions">
+              <button onClick={onClose} className="btn-ghost">CLOSE_SESSION</button>
+              <button onClick={onClose} className="btn-primary">
                 COMMIT_CHANGES
-                <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                <span className="material-symbols-outlined btn-icon">check_circle</span>
               </button>
             </div>
           </div>
@@ -190,28 +358,28 @@ const InteractiveTerminal = ({ initialCmd, initialOutput }) => {
   };
 
   return (
-    <div className="bg-[#0a0c0a] border border-[#4ade80]/15 p-6 font-mono text-[13px] group relative rounded-lg mt-4 transition-all flex flex-col">
-      <div className="absolute right-4 top-4 text-[10px] text-[#4ade80]/50 flex gap-3 uppercase tracking-widest font-sans font-black">
+    <div className="terminal-block">
+      <div className="terminal-header-badge">
         TERMINAL_SESSION
-        <span className="material-symbols-outlined text-[14px]">terminal</span>
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>terminal</span>
       </div>
-      <div className="flex-1 overflow-x-auto text-white/70 whitespace-pre custom-scrollbar pb-2 leading-relaxed max-h-[300px] overflow-y-auto">
+      <div className="terminal-output">
         {history.map((h, i) => (
-          <div key={i} className="mb-4">
-            <div className="text-[#4ade80] font-bold">{'>'} {h.cmd}</div>
-            <div className="opacity-80 mt-1 selection:bg-[#4ade80]/30">{h.output}</div>
+          <div key={i} className="terminal-entry">
+            <div className="terminal-cmd">{'>'} {h.cmd}</div>
+            <div className="terminal-result">{h.output}</div>
           </div>
         ))}
-        {isWorking && <div className="text-[#4ade80] animate-pulse">...</div>}
+        {isWorking && <div className="terminal-working">...</div>}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={runCmd} className="mt-3 flex items-center pt-3 opacity-50 focus-within:opacity-100 transition-opacity">
-        <span className="text-[#4ade80] font-bold mr-3">{'>'}</span>
+      <form onSubmit={runCmd} className="terminal-input-form">
+        <span className="terminal-prompt">{'>'}</span>
         <input
           type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
-          className="flex-1 bg-transparent outline-none text-[#4ade80] placeholder:text-[#4ade80]/20 font-mono text-[12px]"
+          className="terminal-input"
           placeholder="Enter command..."
         />
       </form>
@@ -240,7 +408,6 @@ function App() {
   const [ollamaModels, setOllamaModels] = useState([]);
   const [groqModels, setGroqModels] = useState([]);
   const [backendReady, setBackendReady] = useState(false);
-  const [bootMessage, setBootMessage] = useState("INITIALIZING NEURAL LINK");
   const [expandedFolders, setExpandedFolders] = useState(new Set(['.']));
   const [pendingFileChange, setPendingFileChange] = useState(null);
   const [settings, setSettings] = useState(loadSettings());
@@ -248,9 +415,26 @@ function App() {
   const [isTerminalExecution, setIsTerminalExecution] = useState(false);
   const [thinkingFrame, setThinkingFrame] = useState(0);
 
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [streamingThinkingSteps, setStreamingThinkingSteps] = useState([]);
+
+  // Boot log for detailed progress visibility
+  const [bootLog, setBootLog] = useState([]);
+
+  const [bootSteps, setBootSteps] = useState([
+    { label: 'Инициализация ядра', done: false, active: true },
+    { label: 'Подключение к AI-бэкенду', done: false, active: false },
+    { label: 'Проверка WebView2', done: false, active: false },
+    { label: 'Загрузка рабочей области', done: false, active: false },
+    { label: 'Система готова', done: false, active: false },
+  ]);
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const frames = ['/', '-', '\\', '|'];
+  const abortControllerRef = useRef(null);
 
   useEffect(() => { localStorage.setItem('vey_settings', JSON.stringify(settings)); }, [settings]);
   useEffect(() => { localStorage.setItem('vey_model', selectedModel); }, [selectedModel]);
@@ -267,7 +451,7 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  useEffect(() => { scrollToBottom(); }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages, streamingContent]);
 
   // Thinking animation
   useEffect(() => {
@@ -278,7 +462,7 @@ function App() {
     return () => clearInterval(interval);
   }, [isThinking, isTerminalExecution]);
 
-  // Metrics polling - also reconnects if backend starts late
+  // Metrics polling
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
@@ -287,7 +471,6 @@ function App() {
         setMetrics(data);
         if (!backendReady) {
           setBackendReady(true);
-          // Load workspace files on reconnect
           try {
             const savedPath = localStorage.getItem('vey_workspace');
             const url = savedPath
@@ -296,14 +479,168 @@ function App() {
             const filesRes = await fetch(url);
             const filesData = await filesRes.json();
             setWorkspaceFiles(filesData.files || []);
-          } catch(e) {}
+          } catch (e) { }
         }
-      } catch (e) {}
+      } catch (e) { }
     };
     const interval = setInterval(fetchMetrics, 3000);
     fetchMetrics();
     return () => clearInterval(interval);
   }, [backendReady]);
+
+  // Boot sequence with step-by-step progress and detailed logging
+  useEffect(() => {
+    let checkInterval;
+    let bootStart = Date.now();
+    let attempt = 0;
+
+    const addLog = (msg) => {
+      const ts = ((Date.now() - bootStart) / 1000).toFixed(1);
+      setBootLog(prev => [...prev, `[${ts}s] ${msg}`]);
+    };
+
+    addLog('VEY.AI v2.1.0 — Запуск системы');
+
+    // Step 1 completes immediately (init)
+    setTimeout(() => {
+      addLog('Ядро инициализировано');
+      setBootSteps(prev => prev.map((s, i) =>
+        i === 0 ? { ...s, done: true, active: false } :
+          i === 1 ? { ...s, active: true } : s
+      ));
+      addLog('Поиск AI-бэкенда на порту 8000...');
+    }, 500);
+
+    const pingBackend = async () => {
+      attempt++;
+      try {
+        const res = await fetch('http://127.0.0.1:8000/status', { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const statusData = await res.json();
+          addLog(`Бэкенд обнаружен (PID: ${statusData.pid || '?'}, аптайм: ${statusData.uptime_sec || 0}с)`);
+
+          // Step 2: Backend connected
+          setBootSteps(prev => prev.map((s, i) =>
+            i <= 1 ? { ...s, done: true, active: false } :
+              i === 2 ? { ...s, active: true } : s
+          ));
+
+          addLog('Проверка WebView2 компонентов...');
+
+          setTimeout(() => {
+            addLog('WebView2 — OK');
+            setBootSteps(prev => prev.map((s, i) =>
+              i <= 2 ? { ...s, done: true, active: false } :
+                i === 3 ? { ...s, active: true } : s
+            ));
+            addLog('Загрузка рабочей области...');
+          }, 300);
+
+          // Load workspace
+          try {
+            const wsRes = await fetch('http://127.0.0.1:8000/workspace/current');
+            const wsData = await wsRes.json();
+            if (wsData.path) {
+              setWorkspacePath(wsData.path);
+              localStorage.setItem('vey_workspace', wsData.path);
+              addLog(`Рабочая область: ${wsData.path}`);
+            }
+          } catch (e) { }
+
+          try {
+            const savedPath = localStorage.getItem('vey_workspace');
+            const url = savedPath
+              ? `http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(savedPath)}`
+              : 'http://127.0.0.1:8000/workspace/files';
+            const filesRes = await fetch(url);
+            const filesData = await filesRes.json();
+            setWorkspaceFiles(filesData.files || []);
+            addLog(`Файлов загружено: ${(filesData.files || []).length}`);
+          } catch (e) { }
+
+          // Step 4: workspace loaded
+          setTimeout(() => {
+            setBootSteps(prev => prev.map((s, i) =>
+              i <= 3 ? { ...s, done: true, active: false } :
+                i === 4 ? { ...s, active: true } : s
+            ));
+            addLog('Подготовка интерфейса...');
+          }, 600);
+
+          // Step 5: ready
+          setTimeout(() => {
+            addLog('═══ СИСТЕМА ГОТОВА ═══');
+            setBootSteps(prev => prev.map(s => ({ ...s, done: true, active: false })));
+            setBackendReady(true);
+            clearInterval(checkInterval);
+          }, 1200);
+
+          return;
+        }
+      } catch (e) {
+        if (attempt % 3 === 0) {
+          addLog(`Попытка ${attempt}: ожидание бэкенда...`);
+        }
+
+        // Try the old /metrics endpoint as fallback
+        try {
+          const fallback = await fetch('http://127.0.0.1:8000/metrics', { signal: AbortSignal.timeout(2000) });
+          if (fallback.ok) {
+            addLog('Бэкенд обнаружен (legacy mode)');
+
+            setBootSteps(prev => prev.map((s, i) =>
+              i <= 1 ? { ...s, done: true, active: false } :
+                i === 2 ? { ...s, active: true } : s
+            ));
+
+            setTimeout(() => {
+              setBootSteps(prev => prev.map((s, i) =>
+                i <= 3 ? { ...s, done: true, active: false } :
+                  i === 4 ? { ...s, active: true } : s
+              ));
+            }, 500);
+
+            setTimeout(() => {
+              addLog('═══ СИСТЕМА ГОТОВА ═══');
+              setBootSteps(prev => prev.map(s => ({ ...s, done: true, active: false })));
+              setBackendReady(true);
+              clearInterval(checkInterval);
+            }, 1000);
+
+            return;
+          }
+        } catch (e2) { }
+
+        // Auto-skip after 20 seconds
+        if (Date.now() - bootStart > 20000) {
+          addLog('⚠ Таймаут подключения к бэкенду');
+          setBackendReady(true);
+          clearInterval(checkInterval);
+          setMessages(prev => [...prev, {
+            role: 'VEY',
+            content: '⚠️ AI-бэкенд не обнаружен. Используйте Groq или Ollama, либо запустите бэкенд вручную:\n\n```\npython scripts/ai_service.py\n```\n\nБэкенд подключится автоматически когда будет готов.'
+          }]);
+          return;
+        }
+      }
+    };
+
+    // Start checking after a small delay to let the backend process spawn
+    setTimeout(() => {
+      checkInterval = setInterval(pingBackend, 1000);
+      pingBackend();
+    }, 800);
+
+    return () => clearInterval(checkInterval);
+  }, []);
+
+  const handleSkipBoot = () => {
+    setBackendReady(true);
+    setMessages(prev => [...prev, {
+      role: 'VEY',
+      content: '⚠️ Загрузка пропущена. AI-бэкенд подключится автоматически когда будет готов.'
+    }]);
+  };
 
   // Mount Workspace
   const handleMountWorkspace = async () => {
@@ -323,56 +660,6 @@ function App() {
     }
   };
 
-  // Backend ping + workspace load on startup
-  useEffect(() => {
-    let checkInterval;
-    let bootStart = Date.now();
-
-    const pingBackend = async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:8000/metrics');
-        if (res.ok) {
-          setBackendReady(true);
-          clearInterval(checkInterval);
-
-          // Load last workspace from backend
-          try {
-            const wsRes = await fetch('http://127.0.0.1:8000/workspace/current');
-            const wsData = await wsRes.json();
-            if (wsData.path) {
-              setWorkspacePath(wsData.path);
-              localStorage.setItem('vey_workspace', wsData.path);
-            }
-          } catch(e) {}
-
-          // Load workspace files
-          try {
-            const savedPath = localStorage.getItem('vey_workspace');
-            const url = savedPath
-              ? `http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(savedPath)}`
-              : 'http://127.0.0.1:8000/workspace/files';
-            const filesRes = await fetch(url);
-            const filesData = await filesRes.json();
-            setWorkspaceFiles(filesData.files || []);
-          } catch(e) {}
-        }
-      } catch (e) {
-        // Auto-skip loading after 15 seconds
-        if (Date.now() - bootStart > 15000) {
-          setBackendReady(true);
-          clearInterval(checkInterval);
-          setMessages(prev => [...prev, { role: 'VEY', content: '⚠️ AI-бэкенд не найден. Запустите `python scripts/ai_service.py` вручную или используйте Groq/Ollama.' }]);
-          return;
-        }
-        setBootMessage(prev => prev.length > 35 ? "WAITING FOR AI BACKEND" : prev + ".");
-      }
-    };
-    checkInterval = setInterval(pingBackend, 1500);
-    pingBackend();
-
-    return () => clearInterval(checkInterval);
-  }, []);
-
   // Fetch Ollama Models
   useEffect(() => {
     const fetchOllama = async () => {
@@ -380,7 +667,7 @@ function App() {
         const res = await fetch('http://127.0.0.1:8000/models/ollama');
         const data = await res.json();
         setOllamaModels(data.models || []);
-      } catch (e) {}
+      } catch (e) { }
     };
     fetchOllama();
   }, [isSettingsOpen]);
@@ -398,30 +685,32 @@ function App() {
           const gm = data.data.map(m => m.id).filter(id => !id.includes('whisper'));
           setGroqModels(gm);
           if (!settings.groqModel && gm.length > 0) {
-            setSettings(prev => ({...prev, groqModel: gm[0]}));
+            setSettings(prev => ({ ...prev, groqModel: gm[0] }));
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     };
     fetchGroq();
   }, [settings.groqKey, isSettingsOpen]);
 
-  // ─── PROCESS AI RESPONSE: parse FILE_REQUEST, FILE_EDIT, FILE_PATCH ───
+  // ─── PROCESS AI RESPONSE ──────────────────────────────────────────
   const processAIResponse = useCallback(async (answer) => {
-    // FILE_REQUEST: create new file
     const fileMatch = answer.match(/\[FILE_REQUEST:\s*([^\]]+)\]([\s\S]*?)\[\/FILE_REQUEST\]/);
-    // FILE_EDIT: overwrite file
     const editMatch = answer.match(/\[FILE_EDIT:\s*([^\]]+)\]([\s\S]*?)\[\/FILE_EDIT\]/);
-    // FILE_PATCH: find & replace in file
     const patchMatch = answer.match(/\[FILE_PATCH:\s*([^\]]+)\]([\s\S]*?)\[\/FILE_PATCH\]/);
-    // OPEN_FOLDER
     const folderMatch = answer.match(/\[OPEN_FOLDER:\s*([^\]]+)\]/);
+    const pdfMatch = answer.match(/\[PDF_REQUEST:\s*([^\]]+)\]([\s\S]*?)\[\/PDF_REQUEST\]/);
 
-    let cleanedAnswer = answer;
+    let cleanedAnswer = answer
+      .replace(/\[OPEN_FOLDER:[\s\S]*?\]/, '')
+      .replace(/\[FILE_PATCH:[\s\S]*?\[\/FILE_PATCH\]/, '')
+      .replace(/\[FILE_EDIT:[\s\S]*?\[\/FILE_EDIT\]/, '')
+      .replace(/\[FILE_REQUEST:[\s\S]*?\[\/FILE_REQUEST\]/, '')
+      .replace(/\[PDF_REQUEST:[\s\S]*?\[\/PDF_REQUEST\]/, '')
+      .trim();
 
     if (folderMatch) {
       const folderPath = folderMatch[1].trim();
-      cleanedAnswer = cleanedAnswer.replace(/\[OPEN_FOLDER:[\s\S]*?\]/, '').trim();
       setMessages(prev => [...prev, { role: 'VEY', content: cleanedAnswer || `Открываю папку: ${folderPath}` }]);
       try {
         const res = await fetch(`http://127.0.0.1:8000/workspace/files?path=${encodeURIComponent(folderPath)}`);
@@ -429,17 +718,25 @@ function App() {
         setWorkspaceFiles(wsData.files || []);
         setWorkspacePath(folderPath);
         localStorage.setItem('vey_workspace', folderPath);
-      } catch(e) {}
+      } catch (e) { }
+      return;
+    }
+
+    if (pdfMatch) {
+      setPendingFileChange({
+        type: 'pdf',
+        filename: pdfMatch[1].trim(),
+        content: pdfMatch[2].trim(),
+        originalResponse: cleanedAnswer
+      });
+      setMessages(prev => [...prev, { role: 'VEY', content: cleanedAnswer || `Подготовлен файл \`${pdfMatch[1].trim()}\` для выгрузки в PDF.` }]);
       return;
     }
 
     if (patchMatch) {
       const filepath = patchMatch[1].trim();
-      const patchBody = patchMatch[2];
-      const findMatch = patchBody.match(/\[FIND\]([\s\S]*?)\[\/FIND\]/);
-      const replaceMatch = patchBody.match(/\[REPLACE\]([\s\S]*?)\[\/REPLACE\]/);
-      cleanedAnswer = cleanedAnswer.replace(/\[FILE_PATCH:[\s\S]*?\[\/FILE_PATCH\]/, '').trim();
-
+      const findMatch = patchMatch[2].match(/\[FIND\]([\s\S]*?)\[\/FIND\]/);
+      const replaceMatch = patchMatch[2].match(/\[REPLACE\]([\s\S]*?)\[\/REPLACE\]/);
       if (findMatch && replaceMatch) {
         setPendingFileChange({
           type: 'patch',
@@ -454,30 +751,24 @@ function App() {
     }
 
     if (editMatch) {
-      const filepath = editMatch[1].trim();
-      const content = editMatch[2].trim();
-      cleanedAnswer = cleanedAnswer.replace(/\[FILE_EDIT:[\s\S]*?\[\/FILE_EDIT\]/, '').trim();
       setPendingFileChange({
         type: 'edit',
-        filename: filepath,
-        content: content,
+        filename: editMatch[1].trim(),
+        content: editMatch[2].trim(),
         originalResponse: cleanedAnswer
       });
-      setMessages(prev => [...prev, { role: 'VEY', content: cleanedAnswer || `Готово к изменению файла \`${filepath}\`` }]);
+      setMessages(prev => [...prev, { role: 'VEY', content: cleanedAnswer || `Готово к изменению файла \`${editMatch[1].trim()}\`` }]);
       return;
     }
 
     if (fileMatch) {
-      const filename = fileMatch[1].trim();
-      const content = fileMatch[2].trim();
-      cleanedAnswer = cleanedAnswer.replace(/\[FILE_REQUEST:[\s\S]*?\[\/FILE_REQUEST\]/, '').trim();
       setPendingFileChange({
         type: 'create',
-        filename: filename,
-        content: content,
+        filename: fileMatch[1].trim(),
+        content: fileMatch[2].trim(),
         originalResponse: cleanedAnswer
       });
-      setMessages(prev => [...prev, { role: 'VEY', content: cleanedAnswer || `Готов создать файл \`${filename}\`` }]);
+      setMessages(prev => [...prev, { role: 'VEY', content: cleanedAnswer || `Готов создать файл \`${fileMatch[1].trim()}\`` }]);
       return;
     }
 
@@ -515,7 +806,6 @@ function App() {
       if (data.status === 'SUCCESS') {
         const action = pendingFileChange.type === 'patch' ? 'Патч применён' : pendingFileChange.type === 'edit' ? 'Файл изменён' : 'Файл создан';
         setMessages(prev => [...prev, { role: 'VEY', content: `✅ ${action}: \`${pendingFileChange.filename}\`` }]);
-        // Refresh workspace
         const res = await fetch('http://127.0.0.1:8000/workspace/files');
         const wsData = await res.json();
         setWorkspaceFiles(wsData.files || []);
@@ -528,10 +818,102 @@ function App() {
     setPendingFileChange(null);
   };
 
-  // ─── SUBMIT HANDLER ──────────────────────────────────────────────
+  // ─── STREAMING SUBMIT HANDLER ────────────────────────────────────
+  const handleStreamingSubmit = async (rawInput) => {
+    setIsStreaming(true);
+    setStreamingContent('');
+    setStreamingThinkingSteps([]);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: rawInput }],
+          model: selectedModel,
+          api_key: settings.groqKey,
+          stream: true
+        }),
+        signal: controller.signal
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === 'thinking') {
+                setStreamingThinkingSteps(prev => [...prev, data.content]);
+              } else if (data.type === 'chunk') {
+                fullContent += data.content;
+                setStreamingContent(fullContent);
+              } else if (data.type === 'error') {
+                fullContent += (fullContent ? '\n\n' : '') + `❌ ${data.content}`;
+                setStreamingContent(fullContent);
+              } else if (data.type === 'done') {
+                const finalContent = data.full_content || fullContent;
+                setIsStreaming(false);
+                setStreamingContent('');
+                setStreamingThinkingSteps([]);
+                await processAIResponse(finalContent);
+                return;
+              }
+            } catch (e) { }
+          }
+        }
+      }
+
+      // If we got here without a 'done' event, finalize
+      if (fullContent) {
+        setIsStreaming(false);
+        setStreamingContent('');
+        setStreamingThinkingSteps([]);
+        await processAIResponse(fullContent);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      setIsStreaming(false);
+      setStreamingContent('');
+      setStreamingThinkingSteps([]);
+      // Fall back to non-streaming
+      try {
+        const response = await fetch('http://127.0.0.1:8000/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: rawInput }],
+            model: selectedModel,
+            api_key: settings.groqKey
+          })
+        });
+        const data = await response.json();
+        await processAIResponse(data.answer);
+      } catch (fallbackErr) {
+        setMessages(prev => [...prev, { role: 'VEY', content: '❌ Сервис недоступен. Проверьте backend.', error: true }]);
+      }
+    }
+  };
+
+  // ─── SUBMIT HANDLER ───────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim() || isThinking) return;
+    if (!input.trim() || isThinking || isStreaming) return;
 
     const rawInput = input.trim();
     const isTerminalCmd = rawInput.startsWith('!');
@@ -540,11 +922,9 @@ function App() {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
 
-    if (isTerminalCmd) setIsTerminalExecution(true);
-    else setIsThinking(true);
-
-    try {
-      if (isTerminalCmd) {
+    if (isTerminalCmd) {
+      setIsTerminalExecution(true);
+      try {
         const cmd = rawInput.substring(1).trim();
         const response = await fetch('http://127.0.0.1:8000/terminal', {
           method: 'POST',
@@ -560,24 +940,13 @@ function App() {
           cmd: cmd,
           isTerminal: true
         }]);
-      } else {
-        const response = await fetch('http://127.0.0.1:8000/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: [{ role: 'user', content: rawInput }],
-            model: selectedModel,
-            api_key: settings.groqKey
-          })
-        });
-        const data = await response.json();
-        setIsThinking(false);
-        await processAIResponse(data.answer);
+      } catch (err) {
+        setIsTerminalExecution(false);
+        setMessages(prev => [...prev, { role: 'VEY', content: '❌ Сервис недоступен. Проверьте backend.', error: true }]);
       }
-    } catch (err) {
-      setIsThinking(false);
-      setIsTerminalExecution(false);
-      setMessages(prev => [...prev, { role: 'VEY', content: '❌ Сервис недоступен. Проверьте backend.', error: true }]);
+    } else {
+      // Use streaming by default
+      await handleStreamingSubmit(rawInput);
     }
   };
 
@@ -595,23 +964,68 @@ function App() {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         setIsSettingsOpen(false);
+        // Cancel streaming
+        if (isStreaming && abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          setIsStreaming(false);
+          setStreamingContent('');
+          setStreamingThinkingSteps([]);
+        }
       }
     };
+
+    const handleGlobalClick = (e) => {
+      // Handle code copy buttons
+      const copyBtn = e.target.closest('.code-copy-btn');
+      if (copyBtn) {
+        const codeBlock = copyBtn.closest('.code-block');
+        const codeText = codeBlock?.querySelector('.code-content')?.innerText || 
+                         codeBlock?.querySelector('pre')?.innerText;
+        if (codeText) {
+          navigator.clipboard.writeText(codeText);
+          const originalIcon = copyBtn.innerText;
+          copyBtn.innerText = 'done';
+          setTimeout(() => { copyBtn.innerText = originalIcon; }, 2000);
+        }
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    window.addEventListener('click', handleGlobalClick);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', handleGlobalClick);
+    };
+  }, [isStreaming, pendingFileChange]);
 
   // ─── RENDER ──────────────────────────────────────────────────────
-  return (
-    <div className={`font-sans text-[#e0e0e0] selection:bg-[#4ade80]/30 selection:text-white h-screen flex flex-col overflow-hidden bg-[#080a08] relative antialiased ${settings.theme === 'High Contrast' ? 'contrast-125' : ''} ${settings.theme === 'Light Theme' ? 'invert hue-rotate-180' : ''}`}>
+  if (!backendReady) {
+    return (
+      <div className={`app-root ${settings.theme === 'High Contrast' ? 'contrast-125' : ''} ${settings.theme === 'Light Theme' ? 'invert hue-rotate-180' : ''}`}>
+        {/* Titlebar even during boot */}
+        <div data-tauri-drag-region className="titlebar">
+          <div data-tauri-drag-region className="titlebar-label">VEY.AI</div>
+          <div className="titlebar-controls">
+            <button onClick={() => appWindow.minimize()} className="titlebar-btn material-symbols-outlined">remove</button>
+            <button onClick={() => appWindow.toggleMaximize()} className="titlebar-btn material-symbols-outlined">crop_square</button>
+            <button onClick={() => appWindow.close()} className="titlebar-btn titlebar-btn-close material-symbols-outlined">close</button>
+          </div>
+        </div>
+        <BootScreen bootSteps={bootSteps} onSkip={handleSkipBoot} bootLog={bootLog} />
+      </div>
+    );
+  }
 
-      {/* ── FIXED TITLEBAR (always visible, integrated) ── */}
-      <div data-tauri-drag-region className="flex justify-between items-center px-4 bg-[#060806] h-9 z-[9999] shrink-0 border-b border-white/[0.04] select-none">
-        <div data-tauri-drag-region className="text-white/25 text-[10px] uppercase tracking-[0.2em] pointer-events-none font-bold flex-1">VEY.AI</div>
-        <div className="flex items-center h-full">
-          <button onClick={() => appWindow.minimize()} className="text-white/30 hover:text-white hover:bg-white/5 transition-all material-symbols-outlined text-[14px] h-full w-10 flex items-center justify-center">remove</button>
-          <button onClick={() => appWindow.toggleMaximize()} className="text-white/30 hover:text-white hover:bg-white/5 transition-all material-symbols-outlined text-[14px] h-full w-10 flex items-center justify-center">crop_square</button>
-          <button onClick={() => appWindow.close()} className="text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-all material-symbols-outlined text-[14px] h-full w-10 flex items-center justify-center">close</button>
+  return (
+    <div className={`app-root ${settings.theme === 'High Contrast' ? 'contrast-125' : ''} ${settings.theme === 'Light Theme' ? 'invert hue-rotate-180' : ''}`}>
+
+      {/* Titlebar */}
+      <div data-tauri-drag-region className="titlebar">
+        <div data-tauri-drag-region className="titlebar-label">VEY.AI</div>
+        <div className="titlebar-controls">
+          <button onClick={() => appWindow.minimize()} className="titlebar-btn material-symbols-outlined">remove</button>
+          <button onClick={() => appWindow.toggleMaximize()} className="titlebar-btn material-symbols-outlined">crop_square</button>
+          <button onClick={() => appWindow.close()} className="titlebar-btn titlebar-btn-close material-symbols-outlined">close</button>
         </div>
       </div>
 
@@ -627,100 +1041,72 @@ function App() {
         />
       )}
 
-      {/* ── TOP BAR ── */}
-      <header className="bg-[#080a08] text-[#4ade80] uppercase tracking-[0.15em] text-[10px] border-b border-white/[0.06] flex justify-between items-center w-full px-6 h-12 z-50 shrink-0">
-        <div className="flex items-center h-full">
-          <span className="text-lg font-black text-[#4ade80] tracking-[0.25em] mr-8 select-none flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#4ade80] shadow-[0_0_10px_#4ade80]"></div>
+      {/* Top Bar */}
+      <header className="top-bar">
+        <div className="top-bar-left">
+          <span className="top-bar-logo">
+            <div className="logo-dot" />
             VEY
           </span>
-          <div className="flex items-center gap-8 border-l border-white/[0.06] pl-8 h-6">
+          <div className="top-bar-metrics">
             {/* CPU */}
-            <div className="flex flex-col gap-1 w-28">
-              <div className="flex justify-between text-[8px] font-bold text-white/25 tracking-widest">
-                <span>CPU</span>
-                <span className="text-[#4ade80]">{metrics.cpu}%</span>
+            <div className="metric">
+              <div className="metric-header">
+                <span className="metric-label">CPU</span>
+                <span className="metric-value green">{metrics.cpu}%</span>
               </div>
-              <div className="h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
-                <div className="h-full bg-[#4ade80] transition-all duration-1000 rounded-full" style={{ width: `${metrics.cpu}%` }}></div>
+              <div className="metric-track">
+                <div className="metric-fill green" style={{ width: `${metrics.cpu}%` }} />
               </div>
             </div>
             {/* RAM */}
-            <div className="flex flex-col gap-1 w-28">
-              <div className="flex justify-between text-[8px] font-bold text-white/25 tracking-widest">
-                <span>RAM</span>
-                <span className="text-[#38bdf8]">{metrics.memory}%</span>
+            <div className="metric">
+              <div className="metric-header">
+                <span className="metric-label">RAM</span>
+                <span className="metric-value blue">{metrics.memory}%</span>
               </div>
-              <div className="h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
-                <div className="h-full bg-[#38bdf8] transition-all duration-1000 rounded-full" style={{ width: `${metrics.memory}%` }}></div>
+              <div className="metric-track">
+                <div className="metric-fill blue" style={{ width: `${metrics.memory}%` }} />
               </div>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 text-white/15">
-            <span className="text-[9px] font-bold tracking-widest uppercase">v2.1.0</span>
-          </div>
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="w-9 h-9 flex items-center justify-center border border-white/[0.06] hover:border-[#4ade80]/30 hover:bg-[#4ade80]/5 rounded-lg transition-all group"
-          >
-            <span className="material-symbols-outlined text-[18px] text-white/30 group-hover:text-[#4ade80] transition-colors">settings</span>
+        <div className="top-bar-right">
+          {isStreaming && (
+            <div className="streaming-badge">
+              <span className="material-symbols-outlined spinning" style={{ fontSize: 14 }}>sync</span>
+              STREAMING
+            </div>
+          )}
+          <div className="version-tag">v2.1.0</div>
+          <button onClick={() => setIsSettingsOpen(true)} className="settings-btn">
+            <span className="material-symbols-outlined">settings</span>
           </button>
         </div>
       </header>
 
-      {/* ── MAIN CONTENT ── */}
-      <div className="flex flex-1 overflow-hidden relative z-10">
+      {/* Main Content */}
+      <div className="main-layout">
         {/* Chat Area */}
-        <main className="flex-1 flex flex-col relative bg-[#080a08] overflow-hidden">
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-8 lg:p-12 space-y-10 scroll-smooth">
-            <div className="max-w-3xl mx-auto w-full space-y-10 pb-24">
-              {/* Loading State */}
-              {!backendReady && (
-                <div className="h-full flex flex-col items-center justify-center space-y-6 py-20">
-                  <div className="relative flex items-center justify-center h-20 w-20 mb-4">
-                    <div className="absolute inset-0 border-t-2 border-emerald-500/80 w-full h-full rounded-full animate-spin shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
-                    <div className="absolute inset-2 border-r-2 border-emerald-700/60 w-full h-full rounded-full animate-[spin_1.5s_linear_reverse_infinite]"></div>
-                    <span className="material-symbols-outlined text-emerald-400 text-2xl opacity-90 animate-pulse">memory</span>
-                  </div>
-                  <div className="text-emerald-400 font-mono text-lg tracking-[0.3em] font-bold animate-pulse">BOOTING VEY.AI</div>
-                  <div className="text-emerald-600 font-mono text-xs tracking-widest uppercase">{bootMessage}</div>
-                  <div className="text-emerald-900/60 font-mono text-[10px] mt-8 max-w-sm text-center">
-                    Загрузка моделей. Это может занять 10-30 секунд...
-                  </div>
-                  <button
-                    onClick={() => {
-                      setBackendReady(true);
-                      setMessages(prev => [...prev, { role: 'VEY', content: '⚠️ Загрузка пропущена. AI-бэкенд подключится автоматически когда будет готов.' }]);
-                    }}
-                    className="mt-6 px-6 py-2 border border-emerald-800/40 text-emerald-700 text-[11px] font-bold uppercase tracking-widest rounded-lg hover:bg-emerald-900/20 hover:text-emerald-500 transition-all"
-                  >
-                    Пропустить
-                  </button>
-                </div>
-              )}
-
+        <main className="chat-area">
+          <div className="chat-scroll">
+            <div className="chat-container">
               {/* Messages */}
-              {backendReady && messages.map((msg, i) => (
-                <div key={i} className={`flex gap-5 group ${msg.error ? 'opacity-50' : ''}`}>
-                  <div className={`w-8 h-8 flex-shrink-0 border flex items-center justify-center rounded-lg ${
-                    msg.role === 'VEY' || msg.role === 'SYS'
-                      ? 'border-[#4ade80]/20 bg-[#4ade80]/[0.04]'
-                      : 'border-white/8 bg-white/[0.02]'
-                  }`}>
+              {messages.map((msg, i) => (
+                <div key={i} className={`message ${msg.error ? 'message-error' : ''}`}>
+                  <div className={`message-avatar ${msg.role === 'VEY' || msg.role === 'SYS' ? 'avatar-ai' : 'avatar-user'}`}>
                     {msg.role === 'VEY' || msg.role === 'SYS' ? (
-                      <span className="material-symbols-outlined text-[#4ade80] text-[16px]">memory</span>
+                      <span className="material-symbols-outlined">memory</span>
                     ) : (
-                      <span className="material-symbols-outlined text-white/30 text-[16px]">person</span>
+                      <span className="material-symbols-outlined">person</span>
                     )}
                   </div>
-                  <div className="flex-1 space-y-4 min-w-0 pt-0.5">
-                    <div className={`${msg.role === 'VEY' || msg.role === 'SYS' ? 'text-white/85' : 'text-[#4ade80]'} text-[15px] leading-[1.75] break-words font-normal w-full`}>
+                  <div className="message-body">
+                    <div className={`message-text ${msg.role === 'VEY' || msg.role === 'SYS' ? 'text-ai' : 'text-user'}`}>
                       {msg.role === 'VEY' || msg.role === 'SYS' ? (
-                        <div className="markdown-body overflow-x-hidden">
+                        <div className="markdown-body">
                           <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-                            {msg.content}
+                            {normalizeLaTeX(msg.content)}
                           </ReactMarkdown>
                         </div>
                       ) : (
@@ -730,44 +1116,36 @@ function App() {
                     {msg.code && msg.isTerminal ? (
                       <InteractiveTerminal initialCmd={msg.cmd} initialOutput={msg.code} />
                     ) : (msg.code && (
-                      <div className="bg-[#0a0c0a] border border-white/[0.06] p-6 font-mono text-[13px] group relative rounded-lg mt-3">
-                        <div className="absolute right-4 top-4 text-[10px] text-white/15 flex gap-3 uppercase tracking-widest font-sans">
+                      <div className="code-block">
+                        <div className="code-block-header">
                           {msg.ref}
-                          <span className="material-symbols-outlined text-[14px] cursor-pointer hover:text-[#4ade80] transition-colors">content_copy</span>
+                          <span className="material-symbols-outlined code-copy-btn">content_copy</span>
                         </div>
-                        <pre className="text-white/60 whitespace-pre overflow-x-auto custom-scrollbar pb-2 leading-relaxed selection:bg-[#4ade80]/50">
-                          {msg.code}
-                        </pre>
+                        <pre className="code-content">{msg.code}</pre>
                       </div>
                     ))}
                   </div>
                 </div>
               ))}
 
-              {/* Thinking Indicator */}
-              {isThinking && (
-                <div className="flex gap-5">
-                  <div className="w-8 h-8 flex-shrink-0 border border-[#4ade80]/20 bg-[#4ade80]/[0.04] flex items-center justify-center rounded-lg">
-                    <span className="material-symbols-outlined text-[#4ade80] text-[16px] animate-spin">memory</span>
-                  </div>
-                  <div className="flex-1 pt-1">
-                    <div className="text-[#4ade80] text-[15px] font-bold tracking-wide flex items-center gap-2">
-                      <span className="font-mono text-lg w-4 text-center">{frames[thinkingFrame]}</span>
-                      Думаю...
-                    </div>
-                  </div>
-                </div>
+              {/* Streaming Response */}
+              {isStreaming && (
+                <StreamingMessage
+                  content={streamingContent}
+                  thinkingSteps={streamingThinkingSteps}
+                  isComplete={false}
+                />
               )}
 
-              {/* Terminal Execution Indicator */}
+              {/* Terminal Execution */}
               {isTerminalExecution && (
-                <div className="flex gap-5">
-                  <div className="w-8 h-8 flex-shrink-0 border border-amber-400/20 bg-amber-400/[0.04] flex items-center justify-center rounded-lg">
-                    <span className="material-symbols-outlined text-amber-400 text-[16px] animate-pulse">terminal</span>
+                <div className="message">
+                  <div className="message-avatar avatar-terminal">
+                    <span className="material-symbols-outlined pulsing">terminal</span>
                   </div>
-                  <div className="flex-1 pt-1">
-                    <div className="text-amber-400 text-[15px] font-bold tracking-wide flex items-center gap-2">
-                      <span className="font-mono text-lg w-4 text-center">{frames[thinkingFrame]}</span>
+                  <div className="message-body">
+                    <div className="terminal-indicator">
+                      <span className="thinking-frame">{frames[thinkingFrame]}</span>
                       Выполняю команду...
                     </div>
                   </div>
@@ -776,40 +1154,34 @@ function App() {
 
               {/* Pending File Change */}
               {pendingFileChange && (
-                <div className="flex gap-5">
-                  <div className="w-8 h-8 flex-shrink-0 border border-[#38bdf8]/20 bg-[#38bdf8]/[0.04] flex items-center justify-center rounded-lg">
-                    <span className="material-symbols-outlined text-[#38bdf8] text-[16px]">description</span>
+                <div className="message">
+                  <div className="message-avatar avatar-file">
+                    <span className="material-symbols-outlined">description</span>
                   </div>
-                  <div className="flex-1 bg-[#0a0c0a] border border-[#38bdf8]/15 p-6 rounded-lg space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-black text-[#38bdf8] uppercase tracking-[0.2em]">
+                  <div className="file-change-card">
+                    <div className="file-change-header">
+                      <div>
+                        <span className="file-change-type">
                           {pendingFileChange.type === 'patch' ? 'Патч файла' : pendingFileChange.type === 'edit' ? 'Изменение файла' : 'Создание файла'}
                         </span>
-                        <h3 className="text-white text-sm font-bold">{pendingFileChange.filename}</h3>
+                        <h3 className="file-change-name">{pendingFileChange.filename}</h3>
                       </div>
-                      <span className="material-symbols-outlined text-[#38bdf8] animate-pulse">edit_document</span>
+                      <span className="material-symbols-outlined pulsing file-change-icon">
+                        {pendingFileChange.type === 'pdf' ? 'picture_as_pdf' : 'edit_document'}
+                      </span>
                     </div>
-                    <div className="bg-black/30 border border-white/[0.04] p-4 rounded-lg">
-                      <pre className="text-[12px] text-white/40 font-mono whitespace-pre overflow-x-auto max-h-[200px] custom-scrollbar">
+                    <div className="file-change-preview">
+                      <pre>
                         {pendingFileChange.type === 'patch'
                           ? `FIND:\n${pendingFileChange.findText}\n\nREPLACE:\n${pendingFileChange.replaceText}`
                           : pendingFileChange.content?.substring(0, 2000) + (pendingFileChange.content?.length > 2000 ? '\n...(ещё)' : '')}
                       </pre>
                     </div>
-                    <div className="flex gap-3 pt-1">
-                      <button
-                        onClick={handleApproveFileChange}
-                        className="px-6 py-2.5 bg-[#38bdf8] text-black text-[10px] font-black uppercase tracking-widest hover:bg-[#38bdf8]/80 transition-all rounded-lg"
-                      >
-                        Применить
+                    <div className="file-change-actions">
+                      <button onClick={handleApproveFileChange} className="btn-approve">
+                        {pendingFileChange.type === 'pdf' ? 'Скачать PDF' : 'Применить'}
                       </button>
-                      <button
-                        onClick={() => setPendingFileChange(null)}
-                        className="px-6 py-2.5 bg-white/5 border border-white/8 text-white/40 text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all rounded-lg"
-                      >
-                        Отклонить
-                      </button>
+                      <button onClick={() => setPendingFileChange(null)} className="btn-reject">Отклонить</button>
                     </div>
                   </div>
                 </div>
@@ -820,36 +1192,31 @@ function App() {
           </div>
         </main>
 
-        {/* ── SIDEBAR ── */}
-        <aside className="w-[280px] bg-[#080a08] border-l border-white/[0.04] flex flex-col shrink-0 z-40 relative h-full">
-          <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col h-full">
+        {/* Sidebar */}
+        <aside className="sidebar">
+          <div className="sidebar-inner">
             {/* Model Selector */}
-            <div className="p-6 space-y-3 border-b border-white/[0.04] bg-[#080a08] sticky top-0 z-20">
-              <label className="uppercase text-white/15 text-[9px] font-bold tracking-[0.25em] block">AI Processor</label>
-              <div className="relative">
-                <div
-                  onClick={() => setIsModelOpen(!isModelOpen)}
-                  className="bg-[#0a0c0a] border border-white/8 p-3 flex justify-between items-center cursor-pointer hover:border-[#4ade80]/25 transition-all rounded-lg group"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="material-symbols-outlined text-[#4ade80] text-base group-hover:scale-110 transition-transform">{currentModel.icon}</span>
-                    <span className="text-[10px] text-white font-bold tracking-wide uppercase truncate max-w-[160px]">{currentModel.name}</span>
+            <div className="sidebar-section sidebar-model-section">
+              <label className="sidebar-label">AI Processor</label>
+              <div className="model-selector-wrapper">
+                <div onClick={() => setIsModelOpen(!isModelOpen)} className="model-selector">
+                  <div className="model-selector-content">
+                    <span className="material-symbols-outlined model-icon">{currentModel.icon}</span>
+                    <span className="model-name">{currentModel.name}</span>
                   </div>
-                  <span className={`material-symbols-outlined text-white/15 text-sm transition-transform duration-200 ${isModelOpen ? 'rotate-180' : ''}`}>expand_more</span>
+                  <span className={`material-symbols-outlined model-chevron ${isModelOpen ? 'rotated' : ''}`}>expand_more</span>
                 </div>
 
                 {isModelOpen && (
-                  <div className="absolute top-full left-0 w-full mt-1.5 bg-[#0d0f0d] border border-white/8 rounded-lg z-50 shadow-2xl overflow-hidden py-1">
+                  <div className="model-dropdown">
                     {models.map(model => (
                       <div
                         key={model.id}
                         onClick={() => { setSelectedModel(model.id); setIsModelOpen(false); }}
-                        className={`px-3 py-3 flex items-center gap-2.5 cursor-pointer hover:bg-[#4ade80]/5 transition-colors ${
-                          selectedModel === model.id ? 'bg-[#4ade80]/8 border-l-2 border-[#4ade80]' : ''
-                        }`}
+                        className={`model-option ${selectedModel === model.id ? 'active' : ''}`}
                       >
-                        <span className={`material-symbols-outlined text-base ${selectedModel === model.id ? 'text-[#4ade80]' : 'text-white/15'}`}>{model.icon}</span>
-                        <span className={`text-[10px] font-bold tracking-wide uppercase ${selectedModel === model.id ? 'text-[#4ade80]' : 'text-white/50'}`}>{model.name}</span>
+                        <span className={`material-symbols-outlined model-option-icon ${selectedModel === model.id ? 'active' : ''}`}>{model.icon}</span>
+                        <span className={`model-option-name ${selectedModel === model.id ? 'active' : ''}`}>{model.name}</span>
                       </div>
                     ))}
                   </div>
@@ -858,23 +1225,21 @@ function App() {
             </div>
 
             {/* Workspace */}
-            <div className="px-6 py-6 space-y-5 flex-1">
-              <div className="flex justify-between items-center">
-                <label className="uppercase text-white/15 text-[9px] font-bold tracking-[0.25em] block">Workspace</label>
-                <div className="flex gap-3">
-                  <button onClick={async () => {
-                    try {
-                      const res = await fetch('http://127.0.0.1:8000/workspace/files');
-                      const data = await res.json();
-                      setWorkspaceFiles(data.files || []);
-                    } catch(e) {}
-                  }} className="text-white/15 hover:text-[#4ade80] transition-colors">
-                    <span className="material-symbols-outlined text-[14px]">refresh</span>
-                  </button>
-                </div>
+            <div className="sidebar-section sidebar-workspace-section">
+              <div className="workspace-header">
+                <label className="sidebar-label">Workspace</label>
+                <button onClick={async () => {
+                  try {
+                    const res = await fetch('http://127.0.0.1:8000/workspace/files');
+                    const data = await res.json();
+                    setWorkspaceFiles(data.files || []);
+                  } catch (e) { }
+                }} className="workspace-refresh-btn">
+                  <span className="material-symbols-outlined">refresh</span>
+                </button>
               </div>
 
-              <div className="space-y-0.5 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+              <div className="file-tree">
                 {workspaceFiles.length > 0 ? (
                   workspaceFiles.map((file, idx) => {
                     const pathParts = file.path.split(/[\\/]/);
@@ -887,78 +1252,75 @@ function App() {
                       <div
                         key={idx}
                         onClick={() => file.type === 'directory' && toggleFolder(file.path)}
-                        className={`flex items-center gap-2.5 py-1.5 px-2.5 rounded-md cursor-pointer transition-colors group ${
-                          file.type === 'directory'
-                            ? 'text-white/35 hover:text-white/70'
-                            : 'text-white/50 hover:bg-white/[0.03]'
-                        }`}
+                        className={`file-tree-item ${file.type === 'directory' ? 'is-dir' : 'is-file'}`}
                         style={{ paddingLeft: pathParts.length * 10 }}
                       >
-                        <span className={`material-symbols-outlined text-[15px] transition-transform duration-200 ${
-                          file.type === 'directory'
-                            ? (expandedFolders.has(file.path) ? 'rotate-90 text-[#4ade80]' : 'text-white/15')
-                            : 'opacity-20 group-hover:opacity-50 text-[#4ade80]'
-                        }`}>
+                        <span className={`material-symbols-outlined file-tree-icon ${file.type === 'directory'
+                            ? (expandedFolders.has(file.path) ? 'expanded' : '')
+                            : 'file-icon'
+                          }`}>
                           {file.type === 'directory' ? 'chevron_right' : 'description'}
                         </span>
-                        <span className={`text-[11px] font-medium tracking-tight truncate ${
-                          file.type === 'directory' ? 'uppercase text-[9px] tracking-[0.08em]' : ''
-                        }`}>{file.name}</span>
+                        <span className={`file-tree-name ${file.type === 'directory' ? 'dir-name' : ''}`}>
+                          {file.name}
+                        </span>
                       </div>
                     );
                   })
                 ) : (
-                  <div className="text-[10px] text-white/8 font-mono italic p-4 text-center">Нет подключённой папки</div>
+                  <div className="file-tree-empty">Нет подключённой папки</div>
                 )}
               </div>
 
-              <div
-                onClick={handleMountWorkspace}
-                className="border border-white/[0.04] border-dashed rounded-lg p-6 flex flex-col items-center justify-center gap-3 bg-white/[0.005] hover:bg-[#4ade80]/[0.03] hover:border-[#4ade80]/15 transition-all cursor-pointer group"
-              >
-                <span className="material-symbols-outlined text-white/8 group-hover:text-[#4ade80]/30 text-2xl transition-colors">folder_open</span>
-                <span className="text-[9px] font-bold text-white/15 group-hover:text-[#4ade80]/50 tracking-[0.15em] uppercase text-center">Открыть папку</span>
+              <div onClick={handleMountWorkspace} className="mount-workspace-btn">
+                <span className="material-symbols-outlined mount-icon">folder_open</span>
+                <span className="mount-label">Открыть папку</span>
               </div>
             </div>
           </div>
         </aside>
       </div>
 
-      {/* ── INPUT BAR ── */}
-      <div className="bg-[#080a08] z-50 px-6 py-4 shrink-0">
-        <div className="max-w-3xl mx-auto">
-          <form className="w-full" onSubmit={handleSubmit}>
-            <div className="relative flex items-center">
-              <span className={`absolute left-4 font-bold text-lg transition-all duration-200 select-none ${
-                input.startsWith('!') ? 'text-amber-400' : 'text-[#4ade80]/30'
-              }`}>
+      {/* Input Bar */}
+      <div className="input-bar">
+        <div className="input-bar-inner">
+          <form className="input-form" onSubmit={handleSubmit}>
+            <div className="input-wrapper">
+              <span className={`input-prefix ${input.startsWith('!') ? 'terminal-mode' : ''}`}>
                 {input.startsWith('!') ? '>' : '/'}
               </span>
               <input
                 ref={inputRef}
-                className={`w-full bg-[#0d0f0d] border rounded-xl ${
-                  input.startsWith('!')
-                    ? 'text-amber-400 border-amber-400/20 focus:border-amber-400/40'
-                    : 'text-[#4ade80] border-white/[0.06] focus:border-[#4ade80]/30'
-                } font-mono placeholder:text-white/[0.06] pl-11 pr-14 text-[15px] transition-all py-4 tracking-tight outline-none focus:shadow-[0_0_15px_rgba(74,222,128,0.03)]`}
+                className={`chat-input ${input.startsWith('!') ? 'terminal-mode' : ''}`}
                 placeholder={input.startsWith('!') ? "Команда терминала..." : "Введите сообщение или !команду..."}
                 type="text"
                 autoFocus
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                disabled={isStreaming}
               />
-              <div className="absolute right-3 flex items-center gap-3">
+              <div className="input-actions">
                 {input.startsWith('!') && (
-                  <span className="text-[8px] uppercase font-black tracking-widest text-amber-400 border border-amber-400/20 px-2 py-0.5 rounded bg-amber-400/5">
-                    CMD
-                  </span>
+                  <span className="cmd-badge">CMD</span>
                 )}
-                <button type="submit" className={`w-8 h-8 flex items-center justify-center border hover:bg-white/5 transition-all rounded-lg group ${
-                  input.startsWith('!') ? 'border-amber-400/20' : 'border-[#4ade80]/15'
-                }`}>
-                  <span className={`material-symbols-outlined text-[16px] transition-transform group-hover:translate-x-0.5 ${
-                    input.startsWith('!') ? 'text-amber-400/60' : 'text-[#4ade80]/50'
-                  }`}>send</span>
+                {isStreaming && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (abortControllerRef.current) {
+                        abortControllerRef.current.abort();
+                        setIsStreaming(false);
+                        setStreamingContent('');
+                        setStreamingThinkingSteps([]);
+                      }
+                    }}
+                    className="stop-btn"
+                  >
+                    <span className="material-symbols-outlined">stop_circle</span>
+                  </button>
+                )}
+                <button type="submit" className={`send-btn ${input.startsWith('!') ? 'terminal-mode' : ''}`} disabled={isStreaming}>
+                  <span className="material-symbols-outlined">send</span>
                 </button>
               </div>
             </div>

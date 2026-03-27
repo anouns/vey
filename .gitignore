@@ -1,10 +1,47 @@
+# Dependencies
 node_modules/
 .vey/
+
+# Build artifacts - PyInstaller
+build/
 dist/
-tmp_test/
-hello.txt
-gemini-cli-main.zip
+*.spec
+
+# Tauri build output
+vey-v2/src-tauri/target/
+
+# Temporary / system files
 *.log
 *.tmp
 .DS_Store
 Thumbs.db
+tmp_test/
+gemini-cli-main.zip
+
+# Large binary files
+*.pdf
+*.exe
+*.zip
+*.pkg
+*.pyz
+
+# IDE
+.vscode/
+.idea/
+
+# Old TUI (replaced by Desktop app in vey-v2/)
+src/
+
+# Books / sample data
+books/
+
+# Misc
+WORKSPACE_RAG_RULES.md
+package.json
+package-lock.json
+tsconfig.json
+ai_service.spec
+
+# Built backend in resources should be ignored (it's generated)
+vey-v2/src-tauri/resources/ai_service/
+vey-v2/src-tauri/resources/
